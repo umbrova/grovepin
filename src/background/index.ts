@@ -102,7 +102,7 @@ async function handle(msg: Message): Promise<MessageResponse> {
 // ─── Install handler ──────────────────────────────────────────────────────────
 
 chrome.runtime.onInstalled.addListener(({ reason }) => {
-  if (reason === 'install') {
+  if (reason === chrome.runtime.OnInstalledReason.INSTALL) {
     chrome.tabs.create({ url: chrome.runtime.getURL('src/options/index.html') })
   }
 })

@@ -1,4 +1,5 @@
+// src/popup/popup.ts
+import { mount } from 'svelte'
 import Popup from './Popup.svelte'
-import './popup.css'
 
-new Popup({ target: document.getElementById('app')! })
+mount(Popup, { target: document.getElementById('app')! })

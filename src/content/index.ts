@@ -1,5 +1,5 @@
-import { hasVideo, detectPlatform, getVideoTitle, generateId } from '$lib/video'
-import { getSettings } from '$lib/storage'
+import { hasVideo, detectPlatform, getVideoTitle } from '$lib/video'
+import { getSettings, generateId } from '$lib/storage'
 import type { Session } from '$types/index'
 
 // Only run on pages that have a <video> element

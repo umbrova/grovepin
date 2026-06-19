@@ -3,18 +3,7 @@
   "name": "Grovepin",
   "version": "0.1.0",
   "description": "Pin moments in any video, on any platform",
-  "icons": {
-    "16": "icons/icon16.png",
-    "48": "icons/icon48.png",
-    "128": "icons/icon128.png"
-  },
-  "action": {
-    "default_popup": "src/popup/index.html",
-    "default_icon": {
-      "16": "icons/icon16.png",
-      "48": "icons/icon48.png"
-    }
-  },
+
   "background": {
     "service_worker": "src/background/index.ts",
     "type": "module"
@@ -46,12 +35,6 @@
         "mac": "Command+Shift+G"
       },
       "description": "Open Grovepin"
-    },
-    "pin-note": {
-      "suggested_key": {
-        "default": "N"
-      },
-      "description": "Pin current moment in video"
     }
   },
   "web_accessible_resources": [

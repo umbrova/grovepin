@@ -136,7 +136,8 @@
     <!-- Sessions list -->
     <p class="section-label">Recent sessions</p>
     {#each sessions as session (session.id)}
-      <div class="session-row" on:click={() => toggleExpand(session.id)}>
+      <button class="session-row" on:click={() => toggleExpand(session.id)}>
+
         <div class="session-top">
           <div class="dot" style="background:{PLATFORM_COLOR[session.platform]}"></div>
           <div class="session-info">
@@ -151,7 +152,7 @@
             <polyline points="6 9 12 15 18 9"/>
           </svg>
         </div>
-      </div>
+      </button>
 
       {#if expandedId === session.id}
         <div class="expanded">
