@@ -1,0 +1,63 @@
+{
+  "manifest_version": 3,
+  "name": "Grovepin",
+  "version": "0.1.0",
+  "description": "Pin moments in any video, on any platform",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "src/popup/index.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "background": {
+    "service_worker": "src/background/index.ts",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content/index.ts"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_ui": {
+    "page": "src/options/index.html",
+    "open_in_tab": true
+  },
+  "permissions": [
+    "storage",
+    "tabs",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+G",
+        "mac": "Command+Shift+G"
+      },
+      "description": "Open Grovepin"
+    },
+    "pin-note": {
+      "suggested_key": {
+        "default": "N"
+      },
+      "description": "Pin current moment in video"
+    }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["src/content/sidebar.css"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
