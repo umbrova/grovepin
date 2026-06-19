@@ -22,15 +22,22 @@
   let copyLinkState: 'idle' | 'copied' | 'error' = 'idle'
   let copySummaryDone       = false
 
-  $: canSummarise = pins.length >= (settings.summariseThreshold ?? 7)
-  $: pinsLeft     = Math.max(0, (settings.summariseThreshold ?? 7) - pins.length)
+  $: threshold           = settings.summariseThreshold ?? 7
+  $: pinsLeft            = Math.max(0, threshold - pins.length)
+  $: hasSummary          = summary !== null
+  $: newPinsSinceSummary = session.lastSummarisedAt
+    ? pins.some(p => p.createdAt > (session.lastSummarisedAt ?? 0))
+    : false
+  $: canSummarise        = pins.length >= threshold && (!session.lastSummarisedAt || newPinsSinceSummary)
+  $: canViewSummary      = hasSummary && !newPinsSinceSummary
 
   onMount(() => {
     chrome.runtime.sendMessage({ type: 'GET_SESSION', payload: { sessionId: session.id } })
       .then(res => {
         if (res.ok && res.data) {
           pins    = res.data.pins ?? []
-          session = res.data
+          // FIX: always use fresh title from page, not stored one
+          session = { ...res.data, videoTitle: session.videoTitle, videoUrl: session.videoUrl }
         } else {
           chrome.runtime.sendMessage({ type: 'SAVE_SESSION', payload: { session } })
         }
@@ -64,6 +71,18 @@
 
   async function savePin() {
     if (!noteText.trim()) { cancelCompose(); return }
+
+    // FIX: read title on first pin save — page is fully loaded by now
+    if (!session.videoTitle) {
+      const freshTitle = document.title
+        .replace(/ - YouTube$/i, '')
+        .replace(/ \| .*$/, '')
+        .trim() || document.querySelector('h1')?.textContent?.trim() || 'Untitled video'
+      session = { ...session, videoTitle: freshTitle }
+      // Persist updated title
+      await chrome.runtime.sendMessage({ type: 'SAVE_SESSION', payload: { session } })
+    }
+
     const pin: Pin = activePin
       ? { ...activePin, text: noteText.trim(), updatedAt: Date.now() }
       : { id: generateId(), timestamp: pinnedTime, text: noteText.trim(), createdAt: Date.now(), updatedAt: Date.now() }
@@ -98,11 +117,19 @@
   }
 
   async function summarise() {
+    // If summary cached and no new pins — just show it, no API call
+    if (canViewSummary) { screen = 'summary'; return }
     if (!canSummarise) return
+
     summarising = true; summaryError = ''; screen = 'summary'
     const res = await chrome.runtime.sendMessage({ type: 'SUMMARISE', payload: { sessionId: session.id } })
     summarising = false
-    if (res.ok) summary = res.data; else summaryError = res.error
+    if (res.ok) {
+      summary = res.data.summary
+      session = { ...session, lastSummarisedAt: res.data.lastSummarisedAt }
+    } else {
+      summaryError = res.error
+    }
   }
 
   async function copySummary() {
@@ -172,14 +199,20 @@
       <svg class="gp-logo" viewBox="0 0 32 32" fill="none"><rect x="2" y="9" width="28" height="17" rx="3" fill="#97C459" fill-opacity="0.2"/><rect x="2" y="9" width="28" height="17" rx="3" stroke="#3B6D11" stroke-width="1.5"/><circle cx="14" cy="17.5" r="2" fill="#3B6D11"/><line x1="14" y1="9" x2="14" y2="26" stroke="#3B6D11" stroke-width="1" stroke-dasharray="2 2" stroke-opacity="0.5"/><line x1="14" y1="2" x2="14" y2="9" stroke="#3B6D11" stroke-width="1.3" stroke-linecap="round"/><line x1="10.5" y1="4.5" x2="14" y2="3" stroke="#3B6D11" stroke-width="1" stroke-linecap="round"/><line x1="17.5" y1="4.5" x2="14" y2="3" stroke="#3B6D11" stroke-width="1" stroke-linecap="round"/><line x1="11" y1="7" x2="14" y2="5.5" stroke="#3B6D11" stroke-width="1" stroke-linecap="round"/><line x1="17" y1="7" x2="14" y2="5.5" stroke="#3B6D11" stroke-width="1" stroke-linecap="round"/></svg>
       <span class="gp-title">Grovepin</span>
       {#if pins.length > 0}<span class="gp-badge green">{pins.length} pins</span>{/if}
-      <button class="gp-icon-btn" on:click={() => collapsed = true} title="Hide sidebar (Ctrl+Shift+H)">◀</button>
-      <button class="gp-icon-btn" on:click={() => chrome.runtime.openOptionsPage()} title="Settings">⚙</button>
+      <button class="gp-collapse-btn" on:click={() => collapsed = true} title="Hide sidebar (Ctrl+Shift+H)" aria-label="Collapse sidebar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/><polyline points="18 8 21 11 18 14"/></svg></button>
+      <button class="gp-icon-btn" on:click={() => chrome.runtime.sendMessage({ type: 'OPEN_OPTIONS_PAGE' })} title="Settings">⚙</button>
     {/if}
   </header>
 
   {#if screen === 'list' || screen === 'empty'}
     <div class="gp-meta">
-      <p class="gp-vtitle">{session.videoTitle}</p>
+      <p class="gp-vtitle">
+        {#if session.videoTitle}
+          {session.videoTitle}
+        {:else}
+          {new URL(session.videoUrl).hostname.replace('www.', '')}
+        {/if}
+      </p>
       <div class="gp-bar"><div class="gp-bar-fill" style="width:{progress * 100}%"></div></div>
     </div>
   {/if}
@@ -217,10 +250,17 @@
         <span class="gp-pin-hint">N</span>
       </div>
       <div class="gp-footer-btns">
-        <button class="gp-btn" class:disabled={!canSummarise} disabled={!canSummarise} title={canSummarise ? 'Summarise' : `${pinsLeft} more pins to unlock`} on:click={summarise}>✦ Summarise</button>
+        <button
+          class="gp-btn"
+          class:disabled={!canSummarise && !canViewSummary}
+          disabled={!canSummarise && !canViewSummary}
+          title={canViewSummary ? 'View saved summary' : canSummarise ? 'Summarise with AI' : `${pinsLeft} more pins to unlock`}
+          on:click={summarise}>
+          ✦ {canViewSummary ? 'View summary' : 'Summarise'}
+        </button>
         <button class="gp-btn" on:click={exportMd}>↓ Export</button>
       </div>
-      {#if !canSummarise}
+      {#if !canSummarise && !canViewSummary && pins.length < threshold}
         <p class="gp-unlock-hint">{pinsLeft} more pin{pinsLeft !== 1 ? 's' : ''} to unlock summarise</p>
       {/if}
     </div>
@@ -323,12 +363,14 @@
 
   .gp-header { display: flex; align-items: center; gap: 7px; padding: 10px 12px; border-bottom: 0.5px solid #e8e8e6; flex-shrink: 0; }
   .gp-logo { width: 16px; height: 16px; flex-shrink: 0; }
-  .gp-title { font-size: 11px; font-weight: 500; color: #1a1a18; flex: 1; }
+  .gp-title { font-size: 12px; font-weight: 500; color: #1a1a18; flex: 1; }
   .gp-badge { font-size: 9px; font-weight: 500; padding: 1px 6px; border-radius: 99px; white-space: nowrap; }
   .gp-badge.green { background: #EAF3DE; color: #27500A; }
   .gp-badge.paused { background: #FFF0CC; color: #854F0B; }
-  .gp-icon-btn { background: none; border: none; cursor: pointer; color: #aaa; font-size: 11px; padding: 2px 4px; line-height: 1; border-radius: 3px; font-family: inherit; }
+  .gp-icon-btn { background: none; border: none; cursor: pointer; color: #aaa; font-size: 12px; padding: 2px 4px; line-height: 1; border-radius: 3px; font-family: inherit; }
   .gp-icon-btn:hover { color: #3B6D11; background: #EAF3DE; }
+  .gp-collapse-btn { background: none; border: none; cursor: pointer; color: #ccc; padding: 2px 3px; line-height: 1; border-radius: 3px; display: flex; align-items: center; }
+  .gp-collapse-btn:hover { color: #3B6D11; background: #EAF3DE; }
   .gp-danger-btn { font-size: 9px; padding: 2px 7px; border: 0.5px solid #D85A30; border-radius: 3px; background: transparent; color: #712B13; cursor: pointer; margin-left: auto; font-family: inherit; }
 
   .gp-meta { padding: 7px 12px; border-bottom: 0.5px solid #e8e8e6; flex-shrink: 0; }
@@ -337,7 +379,7 @@
   .gp-bar-fill { height: 100%; background: #3B6D11; border-radius: 99px; opacity: 0.7; transition: width 1s linear; }
 
   .gp-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 20px; }
-  .gp-empty-text { font-size: 11px; color: #aaa; text-align: center; line-height: 1.5; }
+  .gp-empty-text { font-size: 12px; color: #aaa; text-align: center; line-height: 1.5; }
   .gp-empty-text kbd { background: #f0f0ee; padding: 1px 5px; border-radius: 3px; border: 0.5px solid #ddd; font-size: 10px; }
 
   .gp-notes { flex: 1; overflow-y: auto; }
@@ -345,7 +387,7 @@
   .gp-note-row:hover { background: #f5f5f3 !important; }
   .gp-note-row:hover .gp-note-actions { opacity: 1 !important; visibility: visible !important; }
   .gp-ts { font-size: 9px; font-weight: 500; padding: 2px 5px; border-radius: 3px; background: #3B6D11; color: #EAF3DE; white-space: nowrap; flex-shrink: 0; margin-top: 1px; }
-  .gp-note-text { font-size: 11px; color: #1a1a18; line-height: 1.4; flex: 1; word-break: break-word; }
+  .gp-note-text { font-size: 12px; color: #1a1a18; line-height: 1.4; flex: 1; word-break: break-word; }
   .gp-note-actions { display: flex !important; gap: 4px; opacity: 0 !important; visibility: hidden !important; flex-shrink: 0; margin-top: 1px; transition: opacity 0.1s; }
   .gp-action { background: none !important; border: none !important; cursor: pointer !important; color: #bbb !important; font-size: 12px !important; padding: 2px 4px !important; line-height: 1 !important; border-radius: 3px !important; font-family: inherit !important; }
   .gp-action:hover { color: #3B6D11 !important; background: #EAF3DE !important; }
@@ -372,16 +414,16 @@
   .gp-screen-context { font-size: 10px; color: #aaa; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .gp-jump-btn { font-size: 9px; padding: 2px 6px; border: 0.5px solid #3B6D11; border-radius: 3px; background: transparent; color: #3B6D11; cursor: pointer; white-space: nowrap; font-family: inherit; }
   .gp-jump-btn:hover { background: #EAF3DE; }
-  .gp-textarea { width: 100%; font-size: 11px; padding: 7px 8px; border: 0.5px solid #3B6D11; border-radius: 5px; background: #fff; color: #1a1a18; resize: none; line-height: 1.45; font-family: inherit; outline: none; margin-bottom: 2px; }
+  .gp-textarea { width: 100%; font-size: 12px; padding: 7px 8px; border: 0.5px solid #3B6D11; border-radius: 5px; background: #fff; color: #1a1a18; resize: none; line-height: 1.45; font-family: inherit; outline: none; margin-bottom: 2px; }
   .gp-textarea:focus { box-shadow: 0 0 0 2px #EAF3DE; }
   .gp-char-hint { font-size: 9px; color: #ccc; text-align: right; margin-bottom: 8px; }
   .gp-screen-btns { display: flex; gap: 5px; }
 
   .gp-sum-section { margin-bottom: 8px; }
   .gp-sum-label { font-size: 9px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; color: #aaa; margin-bottom: 4px; }
-  .gp-sum-text { font-size: 11px; color: #5a5a58; line-height: 1.5; }
+  .gp-sum-text { font-size: 12px; color: #5a5a58; line-height: 1.5; }
   .gp-sum-item { display: flex; gap: 5px; margin-bottom: 3px; }
-  .gp-sum-dot { color: #3B6D11; font-size: 11px; flex-shrink: 0; margin-top: 1px; }
+  .gp-sum-dot { color: #3B6D11; font-size: 12px; flex-shrink: 0; margin-top: 1px; }
   .gp-divider { height: 0.5px; background: #e8e8e6; margin: 0 0 8px; }
   .gp-ts-link { background: #EAF3DE; color: #27500A; font-size: 9px; padding: 1px 5px; border-radius: 3px; border: none; cursor: pointer; font-weight: 500; margin-right: 4px; font-family: inherit; }
   .gp-ts-link:hover { background: #C0DD97; }
@@ -390,10 +432,10 @@
   .gp-toast.error { background: #D85A30; }
   @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
-  .gp-loading { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: #aaa; font-size: 11px; }
+  .gp-loading { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: #aaa; font-size: 12px; }
   .gp-spinner { width: 18px; height: 18px; border: 2px solid #EAF3DE; border-top-color: #3B6D11; border-radius: 50%; animation: spin 0.7s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .gp-error { padding: 10px; color: #D85A30; font-size: 11px; line-height: 1.5; display: flex; flex-direction: column; gap: 8px; }
+  .gp-error { padding: 10px; color: #D85A30; font-size: 12px; line-height: 1.5; display: flex; flex-direction: column; gap: 8px; }
 
   @media (prefers-color-scheme: dark) {
     .gp-pill { background: #0F6E56; }

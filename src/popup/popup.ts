@@ -1,4 +1,3 @@
-// src/popup/popup.ts
 import { mount } from 'svelte'
 import Popup from './Popup.svelte'
 

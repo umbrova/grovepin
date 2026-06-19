@@ -44,29 +44,7 @@
 
     <section>
       <h2>AI summarise</h2>
-      <p class="desc">Grovepin uses Claude to summarise your notes. Add your Anthropic API key — it's stored locally and never leaves your device.</p>
-      <label>
-        <span>Anthropic API key</span>
-        <div class="key-row">
-          {#if showKey}
-            <input type="text" bind:value={settings.apiKey} placeholder="sk-ant-…" autocomplete="off" spellcheck="false"/>
-          {:else}
-            <input type="password" bind:value={settings.apiKey} placeholder="sk-ant-…" autocomplete="off"/>
-          {/if}
-          <button type="button" class="toggle-key" on:click={() => showKey = !showKey}>
-            {showKey ? 'Hide' : 'Show'}
-          </button>
-        </div>
-        <span class="hint">Get your key at <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a></span>
-      </label>
-
-      <label>
-        <span>Minimum pins to unlock summarise</span>
-        <div class="row-inline">
-          <input type="number" min="3" max="20" bind:value={settings.summariseThreshold} style="width:64px"/>
-          <span class="hint">Currently: {settings.summariseThreshold} pins</span>
-        </div>
-      </label>
+      <p class="desc">Grovepin includes AI summarisation — no API key needed. You get 10 free summarises per month, resetting on the 1st of each month.</p>
     </section>
 
     <section>
