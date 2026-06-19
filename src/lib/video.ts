@@ -35,7 +35,6 @@ export const PLATFORM_COLOR: Record<Platform, string> = {
 }
 
 export function getVideoElement(): HTMLVideoElement | null {
-  // Prefer the largest visible video on the page
   const videos = Array.from(document.querySelectorAll('video'))
   if (videos.length === 0) return null
   return videos.reduce((best, v) =>

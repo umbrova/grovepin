@@ -1,12 +1,12 @@
 import { hasVideo, detectPlatform, getVideoTitle } from '$lib/video'
 import { getSettings, generateId } from '$lib/storage'
+import { mount } from 'svelte'
+import Sidebar from './sidebar/Sidebar.svelte'
 import type { Session } from '$types/index'
 
-// Only run on pages that have a <video> element
 if (!hasVideo()) {
-  // Watch for late-loaded video (SPAs, dynamic content)
   const observer = new MutationObserver(() => {
-    if (hasVideo()) {
+    if (hasVideo() && !document.getElementById('grovepin-host')) {
       observer.disconnect()
       init()
     }
@@ -17,62 +17,59 @@ if (!hasVideo()) {
 }
 
 async function init() {
-  // Don't double-mount
   if (document.getElementById('grovepin-host')) return
 
   const settings = await getSettings()
 
-  // ─── Create shadow host ───────────────────────────────────────────────────
+  const res      = await chrome.runtime.sendMessage({ type: 'GET_ALL_SESSIONS' })
+  const sessions = res.ok ? Object.values(res.data) as Session[] : []
+  const existing = sessions.find((s: Session) => s.videoUrl === location.href)
+
+
   const host = document.createElement('div')
   host.id = 'grovepin-host'
   Object.assign(host.style, {
-    position:   'fixed',
-    top:        '0',
-    right:      '0',
-    width:      '220px',
-    height:     '100vh',
-    zIndex:     '2147483647',
-    pointerEvents: 'none', // host is transparent; shadow root handles events
+    position:      'fixed',
+    top:           '0',
+    right:         '0',
+    width:         '220px',
+    height:        '100vh',
+    zIndex:        '2147483647',
+    pointerEvents: 'auto',
   })
   document.body.appendChild(host)
 
-  const shadow = host.attachShadow({ mode: 'open' })
 
-  // ─── Inject Tailwind/sidebar CSS into shadow root ─────────────────────────
-  const styleEl = document.createElement('link')
-  styleEl.rel  = 'stylesheet'
-  styleEl.href = chrome.runtime.getURL('src/content/sidebar.css')
-  shadow.appendChild(styleEl)
-
-  // ─── Mount Svelte sidebar ─────────────────────────────────────────────────
-  const mountPoint = document.createElement('div')
-  mountPoint.style.pointerEvents = 'auto'
-  shadow.appendChild(mountPoint)
-
-  // Session identity for this page
   const session: Session = {
-    id:                 generateId(),
-    videoUrl:           location.href,
-    videoTitle:         getVideoTitle(),
-    platform:           detectPlatform(location.href),
-    pins:               [],
-    createdAt:          Date.now(),
-    updatedAt:          Date.now(),
-    lastSummarisedAt:   null,
+    id:               generateId(),
+    videoUrl:         location.href,
+    videoTitle:       getVideoTitle(),
+    platform:         detectPlatform(location.href),
+    pins:             [],
+    createdAt:        Date.now(),
+    updatedAt:        Date.now(),
+    lastSummarisedAt: null,
   }
 
-  // Lazy import to keep content script bundle lean
-  const { default: Sidebar } = await import('./sidebar/Sidebar.svelte')
-  new Sidebar({ target: mountPoint, props: { session, settings } })
+  requestAnimationFrame(() => {
+    mount(Sidebar, {
+      target: host,
+      props:  { session, settings },
+    })
+  })
 
-  // ─── Global keyboard shortcut — N to pin ─────────────────────────────────
   document.addEventListener('keydown', (e) => {
-    // Only fire if focused element is not an input/textarea
     const tag = (document.activeElement?.tagName ?? '').toLowerCase()
-    if (['input', 'textarea', 'select', '[contenteditable]'].includes(tag)) return
+    if (['input', 'textarea', 'select'].includes(tag)) return
     if (e.key.toLowerCase() === settings.pinShortcut) {
       e.preventDefault()
-      mountPoint.dispatchEvent(new CustomEvent('grovepin:pin', { bubbles: true }))
+      host.dispatchEvent(new CustomEvent('grovepin:pin', { bubbles: true }))
     }
   })
+
+  chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.type === 'TOGGLE_SIDEBAR') {
+    host.dispatchEvent(new CustomEvent('grovepin:toggle', { bubbles: true }))
+  }
+})
 }
