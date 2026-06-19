@@ -1,4 +1,9 @@
-import { hasVideo, detectPlatform, getVideoTitle } from '$lib/video'
+import { hasVideo, isSupportedVideoPage, detectPlatform, getVideoTitle } from '$lib/video'
+
+// Respond to PING from popup so it knows content script is already running
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.type === 'PING') { sendResponse({ ok: true }); return true }
+})
 import { getSettings, generateId } from '$lib/storage'
 import { mount } from 'svelte'
 import Sidebar from './sidebar/Sidebar.svelte'
@@ -7,25 +12,24 @@ import type { Session } from '$types/index'
 let currentUrl     = location.href
 let sidebarMounted = false
 
-// ─── SPA URL change watcher ───────────────────────────────────────────────────
+// ─── SPA URL change watcher (YouTube etc) ────────────────────────────────────
 const urlObserver = new MutationObserver(() => {
   if (location.href !== currentUrl) {
     currentUrl = location.href
     const old = document.getElementById('grovepin-host')
     if (old) old.remove()
     sidebarMounted = false
-    // Small wait for video element to appear, no title polling needed
     setTimeout(() => tryInit(), 800)
   }
 })
 urlObserver.observe(document.body, { childList: true, subtree: true })
 
 // ─── Initial load ─────────────────────────────────────────────────────────────
-if (hasVideo()) {
+if (isSupportedVideoPage()) {
   init()
 } else {
   const videoObserver = new MutationObserver(() => {
-    if (hasVideo() && !sidebarMounted) {
+    if (isSupportedVideoPage() && !sidebarMounted) {
       videoObserver.disconnect()
       init()
     }
@@ -34,11 +38,11 @@ if (hasVideo()) {
 }
 
 function tryInit() {
-  if (hasVideo()) {
+  if (isSupportedVideoPage()) {
     init()
   } else {
     const observer = new MutationObserver(() => {
-      if (hasVideo() && !sidebarMounted) {
+      if (isSupportedVideoPage() && !sidebarMounted) {
         observer.disconnect()
         init()
       }
@@ -59,12 +63,10 @@ async function init() {
   const all      = res.ok ? Object.values(res.data) as Session[] : []
   const existing = all.find((s: Session) => s.videoUrl === freshUrl)
 
-  // FIX: title is intentionally left empty on new sessions
-  // It will be read and saved on first pin save, when page is fully loaded
   const session: Session = existing ?? {
     id:               generateId(),
     videoUrl:         freshUrl,
-    videoTitle:       '',   // filled on first pin save
+    videoTitle:       '',   // set on first pin save when page title is correct
     platform:         detectPlatform(freshUrl),
     pins:             [],
     createdAt:        Date.now(),
@@ -89,6 +91,7 @@ async function init() {
     mount(Sidebar, { target: host, props: { session, settings } })
   })
 
+  // N key — pin moment
   document.addEventListener('keydown', (e) => {
     const tag = (document.activeElement?.tagName ?? '').toLowerCase()
     if (['input', 'textarea', 'select'].includes(tag)) return
@@ -98,6 +101,7 @@ async function init() {
     }
   })
 
+  // Message listener — toggle sidebar, open options
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === 'TOGGLE_SIDEBAR') {
       host.dispatchEvent(new CustomEvent('grovepin:toggle', { bubbles: true }))

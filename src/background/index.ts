@@ -1,6 +1,6 @@
 import type { Message, MessageResponse, Session } from '$types/index'
 import {
-  getAllSessions, getSession, saveSession,
+  getAllSessions, getSession, saveSession, deleteSession,
   getSettings, saveSettings, generateId,
 } from '$lib/storage'
 import { summarisePins } from '$lib/ai'
@@ -70,9 +70,9 @@ async function handle(msg: Message & { type: string }): Promise<MessageResponse>
       const session = await getSession(sessionId)
       if (!session) return { ok: false, error: 'Session not found' }
 
-      const settings = await getSettings()
-      if (session.pins.length < (settings.summariseThreshold ?? 7)) {
-        return { ok: false, error: `Need at least ${settings.summariseThreshold} pins to summarise` }
+      const SUMMARISE_THRESHOLD = 7
+      if (session.pins.length < SUMMARISE_THRESHOLD) {
+        return { ok: false, error: `Need at least ${SUMMARISE_THRESHOLD} pins to summarise` }
       }
 
       // FIX: if already summarised, return cached summary signal
@@ -81,6 +81,20 @@ async function handle(msg: Message & { type: string }): Promise<MessageResponse>
       session.lastSummarisedAt = Date.now()
       await saveSession(session)
       return { ok: true, data: { summary, lastSummarisedAt: session.lastSummarisedAt } }
+    }
+
+    case 'PURGE_EMPTY_SESSIONS': {
+      const sessions = await getAllSessions()
+      for (const [id, session] of Object.entries(sessions)) {
+        if (session.pins.length === 0) await deleteSession(id)
+      }
+      return { ok: true, data: null }
+    }
+
+    case 'DELETE_SESSION': {
+      const { sessionId } = msg.payload
+      await deleteSession(sessionId)
+      return { ok: true, data: null }
     }
 
     case 'GET_SETTINGS': {
@@ -147,5 +161,15 @@ chrome.commands.onCommand.addListener((command) => {
 chrome.runtime.onInstalled.addListener(({ reason }) => {
   if (reason === chrome.runtime.OnInstalledReason.INSTALL) {
     chrome.tabs.create({ url: chrome.runtime.getURL('src/options/index.html') })
+  }
+})
+
+// ─── Startup: clean up 0-pin sessions ────────────────────────────────────────
+chrome.runtime.onStartup.addListener(async () => {
+  const sessions = await getAllSessions()
+  for (const [id, session] of Object.entries(sessions)) {
+    if (session.pins.length === 0) {
+      await deleteSession(id)
+    }
   }
 })

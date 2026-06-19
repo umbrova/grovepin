@@ -37,7 +37,15 @@ export const PLATFORM_COLOR: Record<Platform, string> = {
 export function getVideoElement(): HTMLVideoElement | null {
   const videos = Array.from(document.querySelectorAll('video'))
   if (videos.length === 0) return null
-  return videos.reduce((best, v) =>
+  // Filter out thumbnails and preview clips — must be at least 200x120px
+  // This prevents Google search result thumbnails from triggering the sidebar
+  const candidates = videos.filter(v => {
+    const rect = v.getBoundingClientRect()
+    return rect.width >= 200 && rect.height >= 120
+  })
+  if (candidates.length === 0) return null
+  // Pick the largest visible one
+  return candidates.reduce((best, v) =>
     v.offsetWidth * v.offsetHeight > best.offsetWidth * best.offsetHeight ? v : best
   )
 }
@@ -87,4 +95,31 @@ export function getVideoTitle(): string {
 
 export function hasVideo(): boolean {
   return getVideoElement() !== null
+}
+
+// Platforms we explicitly support — sidebar only shows on these
+const SUPPORTED_PLATFORMS: Platform[] = [
+  'coursera', 'udemy', 'vimeo', 'loom', 'youtube', 'linkedin', 'wistia'
+]
+
+export function isSupportedVideoPage(): boolean {
+  const platform = detectPlatform(location.href)
+
+  // Always show on known platforms
+  if (SUPPORTED_PLATFORMS.includes(platform)) return true
+
+  // For unknown platforms — check if this looks like intentional video content
+  const video = getVideoElement()
+  if (!video) return false
+
+  // Must have meaningful duration (> 60s rules out most hero/ad loops)
+  const duration = video.duration
+  if (!isNaN(duration) && isFinite(duration) && duration < 60) return false
+
+  // Must not be autoplay muted background video (decorative)
+  // If autoplay AND muted AND no controls — it's almost certainly decorative
+  const isDecorativeBg = video.autoplay && video.muted && !video.controls
+  if (isDecorativeBg) return false
+
+  return true
 }

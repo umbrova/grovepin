@@ -10,7 +10,20 @@
   let loading     = true
   let copiedId:   string | null = null  // tracks which session link was just copied
 
+  let needsReload = false
+
   onMount(async () => {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+      if (tab?.id && tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://')) {
+        try { await chrome.tabs.sendMessage(tab.id, { type: 'PING' }) }
+        catch { needsReload = true }
+      }
+    } catch { /* ignore */ }
+
+        // Purge 0-pin sessions from storage immediately
+    await chrome.runtime.sendMessage({ type: 'PURGE_EMPTY_SESSIONS' })
+
     const res = await chrome.runtime.sendMessage({ type: 'GET_ALL_SESSIONS' })
     if (res.ok) {
       const all = Object.values(res.data as Record<string, Session>)
@@ -22,7 +35,9 @@
           byUrl.set(s.videoUrl, s)
         }
       }
-      sessions = Array.from(byUrl.values()).sort((a, b) => b.updatedAt - a.updatedAt)
+      sessions = Array.from(byUrl.values())
+        .filter(s => s.pins.length > 0)  // hide empty sessions
+        .sort((a, b) => b.updatedAt - a.updatedAt)
     }
     loading = false
   })
@@ -60,7 +75,13 @@
   function openSettings() { chrome.runtime.openOptionsPage() }
 
   function openFeedback() {
-    chrome.tabs.create({ url: 'mailto:hello@sylvoralabs.com?subject=Grovepin Feedback' })
+    window.open('mailto:hello@sylvoralabs.com?subject=Grovepin Feedback')
+  }
+
+  async function deleteSession(session: Session) {
+    await chrome.runtime.sendMessage({ type: 'DELETE_SESSION', payload: { sessionId: session.id } })
+    sessions = sessions.filter(s => s.id !== session.id)
+    if (expandedId === session.id) expandedId = null
   }
 
   async function copyLink(session: Session) {
@@ -90,10 +111,18 @@
     </button>
   </header>
 
+  {#if needsReload}
+  <div class="reload-banner">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    Reload this tab to activate Grovepin
+    <button class="reload-btn" on:click={() => { chrome.tabs.reload(); window.close() }}>Reload</button>
+  </div>
+  {/if}
+
   {#if sessions.length > 0}
   <div class="stats-bar">
     <span class="stat"><span class="dot" style="background:#D85A30"></span>{sessions.length} sessions</span>
-    <span class="stat"><span class="dot" style="background:#1D9E75"></span>{totalPins} pins</span>
+    <span class="stat"><span class="dot" style="background:#1D9E75"></span>{totalPins} {totalPins === 1 ? 'pin' : 'pins'}</span>
     <span class="stat"><span class="dot" style="background:#7F77DD"></span>{totalPlatforms} platforms</span>
   </div>
   {/if}
@@ -147,7 +176,7 @@
               <p class="session-title">{session.videoTitle}</p>
               <div class="session-meta">
                 <span class="platform">{PLATFORM_LABEL[session.platform]}</span>
-                <span class="pin-count">{session.pins.length} pins</span>
+                <span class="pin-count">{session.pins.length} {session.pins.length === 1 ? 'pin' : 'pins'}</span>
                 <span class="time">{relativeTime(session.updatedAt)}</span>
               </div>
             </div>
@@ -182,6 +211,10 @@
               <button class="action-btn primary" on:click|stopPropagation={() => downloadMarkdown(session)}>
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 Export
+              </button>
+              <button class="action-btn danger" on:click|stopPropagation={() => deleteSession(session)}>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                Delete
               </button>
             </div>
           </div>
@@ -226,8 +259,8 @@
   .search-input::placeholder { color: #aaa; }
   .clear-btn { background: none; border: none; cursor: pointer; color: #aaa; font-size: 14px; line-height: 1; padding: 0; }
 
-  /* FIX: scrollable content area */
-  .content { overflow-y: auto; flex: 1; }
+  /* FIX: scrollable content area — scrollbar after 3 sessions */
+  .content { overflow-y: auto; flex: 1; max-height: 320px; }
 
   .section-label { font-size: 9px; font-weight: 500; color: #aaa; text-transform: uppercase; letter-spacing: 0.07em; padding: 7px 14px 3px; }
 
@@ -251,6 +284,8 @@
   .exp-more { font-size: 9px; color: #aaa; padding: 3px 0; }
   .exp-actions { display: flex; gap: 5px; margin-top: 7px; }
   .action-btn { display: inline-flex; align-items: center; gap: 3px; font-size: 9px; padding: 3px 7px; border: 0.5px solid #ddd; border-radius: 4px; background: transparent; color: #5a5a58; cursor: pointer; font-family: inherit; flex: 1; justify-content: center; transition: all 0.15s; }
+  .action-btn.danger { border-color: #f0c0b0; color: #D85A30; }
+  .action-btn.danger:hover { border-color: #D85A30; background: #FEF0EB; }
   .action-btn:hover { border-color: #aaa; }
   /* FIX: copy link copied state */
   .action-btn.copied { border-color: #3B6D11; color: #27500A; background: #EAF3DE; }
@@ -270,6 +305,9 @@
   .empty-text { font-size: 12px; color: #aaa; line-height: 1.5; }
   .empty-text :global(kbd) { background: #f0f0ee; padding: 1px 5px; border-radius: 3px; border: 0.5px solid #ddd; font-size: 10px; }
   .muted { font-size: 12px; color: #aaa; padding: 20px 0; }
+  .reload-banner { display: flex; align-items: center; gap: 6px; padding: 6px 14px; background: #FFF8E6; border-bottom: 0.5px solid #F0D080; font-size: 10px; color: #854F0B; flex-shrink: 0; }
+  .reload-btn { margin-left: auto; font-size: 10px; padding: 2px 8px; border: 0.5px solid #BA7517; border-radius: 3px; background: transparent; color: #854F0B; cursor: pointer; font-family: inherit; white-space: nowrap; }
+  .reload-btn:hover { background: #FFF0CC; }
   .close-btn { font-size: 10px; padding: 4px 10px; border: 0.5px solid #ddd; border-radius: 4px; background: transparent; color: #888; cursor: pointer; }
   .view-all { padding: 7px 14px; text-align: center; border-top: 0.5px solid #e8e8e6; font-size: 10px; color: #aaa; cursor: pointer; }
   footer { border-top: 0.5px solid #e8e8e6; padding: 5px 14px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; }

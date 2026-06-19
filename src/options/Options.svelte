@@ -10,8 +10,6 @@
   }
   let saved  = false
   let saving = false
-  let showKey = false
-
   onMount(async () => {
     const res = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' })
     if (res.ok) settings = res.data
@@ -44,7 +42,8 @@
 
     <section>
       <h2>AI summarise</h2>
-      <p class="desc">Grovepin includes AI summarisation — no API key needed. You get 10 free summarises per month, resetting on the 1st of each month.</p>
+      <p class="desc">Grovepin includes AI summarisation powered by Claude — no API key needed. You get 10 free summarises per month, resetting on the 1st of each month.</p>
+
     </section>
 
     <section>
@@ -63,7 +62,8 @@
         </div>
       </label>
       <p class="hint" style="margin-top:4px;">
-        Open popup: <kbd>Cmd/Ctrl + Shift + G</kbd> (set by Chrome — change in <a href="chrome://extensions/shortcuts" target="_blank">chrome://extensions/shortcuts</a>)
+        Open popup: <kbd>Cmd/Ctrl + Shift + Y</kbd> · Toggle sidebar: <kbd>Cmd/Ctrl + Shift + H</kbd><br>
+        Change in <a href="chrome://extensions/shortcuts" target="_blank">chrome://extensions/shortcuts</a>
       </p>
     </section>
 

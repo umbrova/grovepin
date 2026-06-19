@@ -24,6 +24,7 @@
 
   $: threshold           = settings.summariseThreshold ?? 7
   $: pinsLeft            = Math.max(0, threshold - pins.length)
+  $: pinWord              = (n: number) => n === 1 ? 'pin' : 'pins'
   $: hasSummary          = summary !== null
   $: newPinsSinceSummary = session.lastSummarisedAt
     ? pins.some(p => p.createdAt > (session.lastSummarisedAt ?? 0))
@@ -198,9 +199,9 @@
     {:else}
       <svg class="gp-logo" viewBox="0 0 32 32" fill="none"><rect x="2" y="9" width="28" height="17" rx="3" fill="#97C459" fill-opacity="0.2"/><rect x="2" y="9" width="28" height="17" rx="3" stroke="#3B6D11" stroke-width="1.5"/><circle cx="14" cy="17.5" r="2" fill="#3B6D11"/><line x1="14" y1="9" x2="14" y2="26" stroke="#3B6D11" stroke-width="1" stroke-dasharray="2 2" stroke-opacity="0.5"/><line x1="14" y1="2" x2="14" y2="9" stroke="#3B6D11" stroke-width="1.3" stroke-linecap="round"/><line x1="10.5" y1="4.5" x2="14" y2="3" stroke="#3B6D11" stroke-width="1" stroke-linecap="round"/><line x1="17.5" y1="4.5" x2="14" y2="3" stroke="#3B6D11" stroke-width="1" stroke-linecap="round"/><line x1="11" y1="7" x2="14" y2="5.5" stroke="#3B6D11" stroke-width="1" stroke-linecap="round"/><line x1="17" y1="7" x2="14" y2="5.5" stroke="#3B6D11" stroke-width="1" stroke-linecap="round"/></svg>
       <span class="gp-title">Grovepin</span>
-      {#if pins.length > 0}<span class="gp-badge green">{pins.length} pins</span>{/if}
-      <button class="gp-collapse-btn" on:click={() => collapsed = true} title="Hide sidebar (Ctrl+Shift+H)" aria-label="Collapse sidebar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/><polyline points="18 8 21 11 18 14"/></svg></button>
+      {#if pins.length > 0}<span class="gp-badge green">{pins.length} {pins.length === 1 ? 'pin' : 'pins'}</span>{/if}
       <button class="gp-icon-btn" on:click={() => chrome.runtime.sendMessage({ type: 'OPEN_OPTIONS_PAGE' })} title="Settings">⚙</button>
+      <button class="gp-collapse-btn" on:click={() => collapsed = true} title="Hide sidebar (Ctrl+Shift+H)" aria-label="Collapse sidebar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/><polyline points="18 8 21 11 18 14"/></svg></button>
     {/if}
   </header>
 
@@ -239,6 +240,7 @@
           <div class="gp-note-actions">
             <button class="gp-action" on:click|stopPropagation={() => openEdit(pin)} title="Edit">✎</button>
             <button class="gp-action" on:click|stopPropagation={() => seekTo(pin.timestamp)} title="Jump to">▶</button>
+            <button class="gp-action del" on:click|stopPropagation={() => deletePin(pin)} title="Delete">✕</button>
           </div>
         </div>
       {/each}
@@ -391,6 +393,7 @@
   .gp-note-actions { display: flex !important; gap: 4px; opacity: 0 !important; visibility: hidden !important; flex-shrink: 0; margin-top: 1px; transition: opacity 0.1s; }
   .gp-action { background: none !important; border: none !important; cursor: pointer !important; color: #bbb !important; font-size: 12px !important; padding: 2px 4px !important; line-height: 1 !important; border-radius: 3px !important; font-family: inherit !important; }
   .gp-action:hover { color: #3B6D11 !important; background: #EAF3DE !important; }
+  .gp-action.del:hover { color: #D85A30 !important; background: #FEF0EB !important; }
 
   .gp-footer { padding: 8px 12px; border-top: 0.5px solid #e8e8e6; flex-shrink: 0; }
   .gp-pin-row { display: flex; align-items: center; gap: 6px; background: #f5f5f3; border-radius: 6px; padding: 6px 8px; border: 0.5px solid #e8e8e6; cursor: pointer; }
