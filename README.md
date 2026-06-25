@@ -88,5 +88,5 @@ MIT — see [LICENSE](LICENSE)
 
 ## Contact
 
-Feedback → [hello@sylvoralabs.com](mailto:hello@sylvoralabs.com?subject=Grovepin%20Feedback)  
+Feedback → [sylvoralabs@gmail.com](mailto:sylvoralabs@gmail.com?subject=Grovepin%20Feedback)  
 Made by [Sylvora Labs](https://sylvoralabs.com)

@@ -75,7 +75,7 @@
   function openSettings() { chrome.runtime.openOptionsPage() }
 
   function openFeedback() {
-    window.open('mailto:hello@sylvoralabs.com?subject=Grovepin Feedback')
+    window.open('mailto:sylvoralabs@gmail.com?subject=Grovepin Feedback')
   }
 
   async function deleteSession(session: Session) {
