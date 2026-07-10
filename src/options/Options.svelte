@@ -101,14 +101,14 @@
   label span{font-size:12px;font-weight:500;color:#3d3d3a;}
   .hint{font-size:11px;color:#aaa;}
   .hint a{color:#3B6D11;}
-  input[type="text"],input[type="password"],input[type="number"],select{
+  input[type="text"],select{
     font-size:12px;padding:7px 10px;border:0.5px solid #ddd;border-radius:6px;
     background:#fff;color:#1a1a18;font-family:inherit;outline:none;
   }
   input:focus,select:focus{border-color:#3B6D11;}
-  .key-row{display:flex;gap:6px;}
-  .key-row input{flex:1;}
-  .toggle-key{font-size:11px;padding:5px 10px;border:0.5px solid #ddd;border-radius:5px;background:#f5f5f3;color:#888;cursor:pointer;}
+  
+  
+  
   .row-inline{display:flex;align-items:center;gap:10px;}
   kbd{background:#f0f0ee;padding:1px 6px;border-radius:3px;border:0.5px solid #ddd;font-size:11px;font-family:inherit;}
   .actions{margin-top:8px;}
