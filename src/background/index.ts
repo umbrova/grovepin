@@ -77,7 +77,7 @@ async function handle(msg: Message & { type: string }): Promise<MessageResponse>
 
       // FIX: if already summarised, return cached summary signal
       // (summary content isn't stored — just re-call the API)
-      const summary = await summarisePins(session.pins, session.videoTitle, '')
+      const summary = await summarisePins(session.pins, session.videoTitle)
       session.lastSummarisedAt = Date.now()
       await saveSession(session)
       return { ok: true, data: { summary, lastSummarisedAt: session.lastSummarisedAt } }
@@ -140,8 +140,8 @@ chrome.action.onClicked.addListener(async (tab) => {
         target: { tabId: tab.id },
         files:  ['src/content/index.js'],
       })
-    } catch (e) {
-      console.log('Could not inject content script:', e)
+    } catch {
+      // Content script could not be injected (e.g. restricted page)
     }
   }
 })

@@ -1,7 +1,6 @@
 import type { Session, UserSettings, StorageSchema } from '$types/index'
 
 const DEFAULT_SETTINGS: UserSettings = {
-  apiKey:               null,
   theme:                'auto',
   pinShortcut:          'n',
   summariseThreshold:   7,

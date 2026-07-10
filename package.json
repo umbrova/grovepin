@@ -4,6 +4,12 @@
   "description": "Pin moments in any video, on any platform",
   "private": true,
   "type": "module",
+  "author": "Umbrova",
+  "homepage": "https://grovepin.umbrova.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/umbrova/grovepin"
+  },
   "scripts": {
     "dev": "vite build --watch",
     "build": "vite build",
@@ -15,13 +21,7 @@
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^4.0.4",
     "@types/chrome": "^0.0.268",
-    "@typescript-eslint/eslint-plugin": "^7.0.0",
-    "@typescript-eslint/parser": "^7.0.0",
-    "autoprefixer": "^10.4.19",
-    "daisyui": "^4.12.10",
     "svelte": "^5.0.0",
-    "svelte-check": "^3.8.0",
-    "tailwindcss": "^3.4.4",
     "typescript": "^5.5.3",
     "vite": "^5.3.4",
     "vite-plugin-web-extension": "^4.5.1"

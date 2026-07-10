@@ -34,7 +34,7 @@ Coming soon — [grovepin.app](https://grovepin.app)
 
 ### Load unpacked (dev)
 ```bash
-git clone https://github.com/silvonix/grovepin.git
+git clone https://github.com/umbrova/grovepin.git
 cd grovepin
 npm install
 npm run build
@@ -45,9 +45,9 @@ Then open `chrome://extensions` → Enable Developer mode → Load unpacked → 
 
 - **Vite** + `vite-plugin-web-extension` — MV3 multi-entry build
 - **Svelte 5** + TypeScript — UI components
-- **Tailwind CSS** + shadcn-svelte — styling
+- **Hand-written component styles** (no CSS framework)
 - **Manifest V3** — Chrome extension API
-- **Cloudflare Workers** (via [grovepin-worker](https://github.com/silvonix/grovepin-worker)) — AI proxy with rate limiting
+- **Cloudflare Workers** (via [grovepin-worker](https://github.com/umbrova/grovepin-worker)) — AI proxy with rate limiting
 
 ## Project structure
 
@@ -88,5 +88,5 @@ MIT — see [LICENSE](LICENSE)
 
 ## Contact
 
-Feedback → [sylvoralabs@gmail.com](mailto:sylvoralabs@gmail.com?subject=Grovepin%20Feedback)  
-Made by [Sylvora Labs](https://sylvoralabs.com)
+Feedback → [hello@umbrova.com](mailto:hello@umbrova.com?subject=Grovepin%20Feedback)  
+Made by [Umbrova](https://umbrova.com)
