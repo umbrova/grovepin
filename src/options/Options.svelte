@@ -10,8 +10,6 @@
   }
   let saved  = false
   let saving = false
-  let showKey = false
-
   onMount(async () => {
     const res = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' })
     if (res.ok) settings = res.data
@@ -44,29 +42,8 @@
 
     <section>
       <h2>AI summarise</h2>
-      <p class="desc">Grovepin uses Claude to summarise your notes. Add your Anthropic API key — it's stored locally and never leaves your device.</p>
-      <label>
-        <span>Anthropic API key</span>
-        <div class="key-row">
-          {#if showKey}
-            <input type="text" bind:value={settings.apiKey} placeholder="sk-ant-…" autocomplete="off" spellcheck="false"/>
-          {:else}
-            <input type="password" bind:value={settings.apiKey} placeholder="sk-ant-…" autocomplete="off"/>
-          {/if}
-          <button type="button" class="toggle-key" on:click={() => showKey = !showKey}>
-            {showKey ? 'Hide' : 'Show'}
-          </button>
-        </div>
-        <span class="hint">Get your key at <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a></span>
-      </label>
+      <p class="desc">Grovepin includes AI summarisation powered by Claude — no API key needed. You get 10 free summarises per month, resetting on the 1st of each month.</p>
 
-      <label>
-        <span>Minimum pins to unlock summarise</span>
-        <div class="row-inline">
-          <input type="number" min="3" max="20" bind:value={settings.summariseThreshold} style="width:64px"/>
-          <span class="hint">Currently: {settings.summariseThreshold} pins</span>
-        </div>
-      </label>
     </section>
 
     <section>
@@ -85,7 +62,8 @@
         </div>
       </label>
       <p class="hint" style="margin-top:4px;">
-        Open popup: <kbd>Cmd/Ctrl + Shift + G</kbd> (set by Chrome — change in <a href="chrome://extensions/shortcuts" target="_blank">chrome://extensions/shortcuts</a>)
+        Open popup: <kbd>Cmd/Ctrl + Shift + Y</kbd> · Toggle sidebar: <kbd>Cmd/Ctrl + Shift + H</kbd><br>
+        Change in <a href="chrome://extensions/shortcuts" target="_blank">chrome://extensions/shortcuts</a>
       </p>
     </section>
 
@@ -123,14 +101,14 @@
   label span{font-size:12px;font-weight:500;color:#3d3d3a;}
   .hint{font-size:11px;color:#aaa;}
   .hint a{color:#3B6D11;}
-  input[type="text"],input[type="password"],input[type="number"],select{
+  input[type="text"],select{
     font-size:12px;padding:7px 10px;border:0.5px solid #ddd;border-radius:6px;
     background:#fff;color:#1a1a18;font-family:inherit;outline:none;
   }
   input:focus,select:focus{border-color:#3B6D11;}
-  .key-row{display:flex;gap:6px;}
-  .key-row input{flex:1;}
-  .toggle-key{font-size:11px;padding:5px 10px;border:0.5px solid #ddd;border-radius:5px;background:#f5f5f3;color:#888;cursor:pointer;}
+  
+  
+  
   .row-inline{display:flex;align-items:center;gap:10px;}
   kbd{background:#f0f0ee;padding:1px 6px;border-radius:3px;border:0.5px solid #ddd;font-size:11px;font-family:inherit;}
   .actions{margin-top:8px;}

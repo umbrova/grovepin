@@ -1,22 +1,21 @@
 import type { Message, MessageResponse, Session } from '$types/index'
 import {
-  getAllSessions, getSession, saveSession,
+  getAllSessions, getSession, saveSession, deleteSession,
   getSettings, saveSettings, generateId,
 } from '$lib/storage'
 import { summarisePins } from '$lib/ai'
 
 // ─── Message router ───────────────────────────────────────────────────────────
-
 chrome.runtime.onMessage.addListener(
-  (msg: Message, _sender, sendResponse: (r: MessageResponse) => void) => {
+  (msg: Message & { type: string }, _sender, sendResponse: (r: MessageResponse) => void) => {
     handle(msg).then(sendResponse).catch(err => {
       sendResponse({ ok: false, error: String(err) })
     })
-    return true // keep channel open for async response
+    return true
   }
 )
 
-async function handle(msg: Message): Promise<MessageResponse> {
+async function handle(msg: Message & { type: string }): Promise<MessageResponse> {
   switch (msg.type) {
 
     case 'GET_ALL_SESSIONS': {
@@ -68,20 +67,34 @@ async function handle(msg: Message): Promise<MessageResponse> {
 
     case 'SUMMARISE': {
       const { sessionId } = msg.payload
-      const [session, settings] = await Promise.all([
-        getSession(sessionId),
-        getSettings(),
-      ])
-      if (!session)       return { ok: false, error: 'Session not found' }
-      if (!settings.apiKey) return { ok: false, error: 'No API key set — add one in Settings' }
-      if (session.pins.length < settings.summariseThreshold) {
-        return { ok: false, error: `Need at least ${settings.summariseThreshold} pins to summarise` }
+      const session = await getSession(sessionId)
+      if (!session) return { ok: false, error: 'Session not found' }
+
+      const SUMMARISE_THRESHOLD = 7
+      if (session.pins.length < SUMMARISE_THRESHOLD) {
+        return { ok: false, error: `Need at least ${SUMMARISE_THRESHOLD} pins to summarise` }
       }
-      const summary = await summarisePins(session.pins, session.videoTitle, settings.apiKey)
-      // persist lastSummarisedAt
+
+      // FIX: if already summarised, return cached summary signal
+      // (summary content isn't stored — just re-call the API)
+      const summary = await summarisePins(session.pins, session.videoTitle, '')
       session.lastSummarisedAt = Date.now()
       await saveSession(session)
-      return { ok: true, data: summary }
+      return { ok: true, data: { summary, lastSummarisedAt: session.lastSummarisedAt } }
+    }
+
+    case 'PURGE_EMPTY_SESSIONS': {
+      const sessions = await getAllSessions()
+      for (const [id, session] of Object.entries(sessions)) {
+        if (session.pins.length === 0) await deleteSession(id)
+      }
+      return { ok: true, data: null }
+    }
+
+    case 'DELETE_SESSION': {
+      const { sessionId } = msg.payload
+      await deleteSession(sessionId)
+      return { ok: true, data: null }
     }
 
     case 'GET_SETTINGS': {
@@ -94,15 +107,69 @@ async function handle(msg: Message): Promise<MessageResponse> {
       return { ok: true, data: null }
     }
 
+    // FIX: open options page from background (works from content script context)
+    case 'OPEN_OPTIONS_PAGE': {
+      chrome.runtime.openOptionsPage()
+      return { ok: true, data: null }
+    }
+
+    // FIX: toggle sidebar command relay
+    case 'RELAY_TOGGLE': {
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
+      if (tabs[0]?.id) {
+        chrome.tabs.sendMessage(tabs[0].id, { type: 'TOGGLE_SIDEBAR' })
+      }
+      return { ok: true, data: null }
+    }
+
     default:
       return { ok: false, error: 'Unknown message type' }
   }
 }
 
-// ─── Install handler ──────────────────────────────────────────────────────────
+// ─── Toolbar icon click — inject sidebar if not present ──────────────────────
+chrome.action.onClicked.addListener(async (tab) => {
+  if (!tab.id || !tab.url) return
+  // Try sending a toggle message first
+  try {
+    await chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE_SIDEBAR' })
+  } catch {
+    // Content script not running — inject it
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files:  ['src/content/index.js'],
+      })
+    } catch (e) {
+      console.log('Could not inject content script:', e)
+    }
+  }
+})
 
+// ─── Keyboard command — toggle sidebar ───────────────────────────────────────
+chrome.commands.onCommand.addListener((command) => {
+  if (command === 'toggle-sidebar') {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]?.id) {
+        chrome.tabs.sendMessage(tabs[0].id, { type: 'TOGGLE_SIDEBAR' })
+      }
+    })
+  }
+})
+
+// ─── Install handler ──────────────────────────────────────────────────────────
 chrome.runtime.onInstalled.addListener(({ reason }) => {
-  if (reason === 'install') {
+  if (reason === chrome.runtime.OnInstalledReason.INSTALL) {
     chrome.tabs.create({ url: chrome.runtime.getURL('src/options/index.html') })
+  }
+})
+
+// ─── Startup: clean up 0-pin sessions ────────────────────────────────────────
+chrome.runtime.onStartup.addListener(async () => {
+  const sessions = await getAllSessions()
+  for (const [id, session] of Object.entries(sessions)) {
+    if (session.pins.length === 0) {
+      await deleteSession(id)
+    }
   }
 })

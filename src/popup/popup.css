@@ -1,0 +1,10 @@
+
+.session-row {
+  /* existing styles... */
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  border: none;
+  border-bottom: 0.5px solid #e8e8e6;
+  background: transparent; /* overridden by :hover */
+}

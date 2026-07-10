@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import type { Pin, SummaryResult } from '$types/index'
 
+const WORKER_URL = 'https://grovepin-worker.silvonix.workers.dev'
+
 const SummarySchema = z.object({
   overview:  z.string(),
   keyPoints: z.array(z.string()),
@@ -10,65 +12,48 @@ const SummarySchema = z.object({
   })),
 })
 
-function formatTimestamp(seconds: number): string {
-  const m = Math.floor(seconds / 60)
-  const s = Math.floor(seconds % 60)
-  return `${m}:${s.toString().padStart(2, '0')}`
+function getInstallId(): string {
+  // Use extension ID as stable install identifier
+  return chrome.runtime.id
 }
 
 export async function summarisePins(
-  pins: Pin[],
+  pins:       Pin[],
   videoTitle: string,
-  apiKey: string,
+  _apiKey:    string,  // kept for signature compat, unused — key lives in worker
 ): Promise<SummaryResult> {
-  const pinList = pins
-    .map(p => `[${formatTimestamp(p.timestamp)}] ${p.text}`)
-    .join('\n')
-
-  const prompt = `You are a study assistant. The user watched: "${videoTitle}"
-
-Their timestamped notes:
-${pinList}
-
-Return ONLY a valid JSON object with this exact shape — no preamble, no markdown fences:
-{
-  "overview": "2-3 sentence summary of what was covered",
-  "keyPoints": ["key point 1", "key point 2", "key point 3"],
-  "revisit": [
-    { "timestamp": 125, "note": "brief description of what to revisit" }
-  ]
-}
-
-Rules:
-- overview: 2-3 sentences max
-- keyPoints: 3-5 items max, each under 15 words
-- revisit: only include pins the user explicitly flagged for review (words like "revisit", "check", "look up", "unclear") — can be empty array
-- timestamp values must be numbers in seconds, taken directly from the notes
-- Return raw JSON only`
-
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
+  const response = await fetch(`${WORKER_URL}/summarise`, {
+    method:  'POST',
     headers: {
-      'Content-Type':         'application/json',
-      'x-api-key':            apiKey,
-      'anthropic-version':    '2023-06-01',
+      'Content-Type': 'application/json',
+      'X-Install-ID': getInstallId(),
     },
     body: JSON.stringify({
-      model:      'claude-haiku-4-5-20251001',
-      max_tokens: 400,
-      messages:   [{ role: 'user', content: prompt }],
+      pins: pins.map(p => ({ timestamp: p.timestamp, text: p.text })),
+      videoTitle,
     }),
   })
 
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}))
-    throw new Error((err as { error?: { message?: string } }).error?.message ?? 'API error')
+  const data = await response.json() as {
+    ok:    boolean
+    data?: SummaryResult
+    error?: string
+    rateLimitInfo?: { used: number; limit: number; remaining: number }
   }
 
-  const data = await response.json() as { content: Array<{ type: string; text: string }> }
-  const raw = data.content.find(b => b.type === 'text')?.text ?? ''
+  if (!data.ok) {
+    throw new Error(data.error ?? 'Summarise failed')
+  }
 
-  const cleaned = raw.replace(/```json|```/g, '').trim()
-  const parsed = JSON.parse(cleaned)
-  return SummarySchema.parse(parsed)
+  return SummarySchema.parse(data.data)
+}
+
+export async function getRateLimitInfo(): Promise<{ used: number; limit: number; remaining: number } | null> {
+  try {
+    const res  = await fetch(`${WORKER_URL}/rate-limit/${chrome.runtime.id}`)
+    const data = await res.json() as { ok: boolean; used: number; limit: number; remaining: number }
+    return data.ok ? data : null
+  } catch {
+    return null
+  }
 }
