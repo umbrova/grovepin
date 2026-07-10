@@ -1,5 +1,8 @@
 # Grovepin
 
+[![Chrome Web Store](https://img.shields.io/chrome-web-store/v/jhekobecppdnbaeceolkmninlkfkhngl)](https://chromewebstore.google.com/detail/grovepin/jhekobecppdnbaeceolkmninlkfkhngl)
+
+
 > Pin moments in any video, on any platform.
 
 Grovepin is a Chrome extension that lets you drop timestamped notes on videos while watching — on YouTube, Vimeo, Coursera, Udemy, Loom, LinkedIn Learning, and more. No more pausing to open Notion. Press `N`, type your thought, resume.
