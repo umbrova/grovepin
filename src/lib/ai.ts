@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { Pin, SummaryResult } from '$types/index'
 
+// TODO: update to umbrova worker URL before next release
 const WORKER_URL = 'https://grovepin-worker.silvonix.workers.dev'
 
 const SummarySchema = z.object({
@@ -20,7 +21,6 @@ function getInstallId(): string {
 export async function summarisePins(
   pins:       Pin[],
   videoTitle: string,
-  _apiKey:    string,  // kept for signature compat, unused — key lives in worker
 ): Promise<SummaryResult> {
   const response = await fetch(`${WORKER_URL}/summarise`, {
     method:  'POST',

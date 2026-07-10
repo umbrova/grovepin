@@ -37,7 +37,6 @@ export interface StorageSchema {
 }
 
 export interface UserSettings {
-  apiKey: string | null
   theme: 'auto' | 'light' | 'dark'
   pinShortcut: string                 // default 'n'
   summariseThreshold: number          // default 7

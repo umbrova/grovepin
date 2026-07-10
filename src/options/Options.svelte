@@ -3,7 +3,6 @@
   import type { UserSettings } from '$types/index'
 
   let settings: UserSettings = {
-    apiKey:             null,
     theme:              'auto',
     pinShortcut:        'n',
     summariseThreshold: 7,
