@@ -28,11 +28,6 @@ Grovepin is a Chrome extension that lets you drop timestamped notes on videos wh
 
 Change shortcuts at `chrome://extensions/shortcuts`
 
-## Install
-
-### From Chrome Web Store
-Coming soon — [grovepin.app](https://grovepin.app)
-
 ### Load unpacked (dev)
 ```bash
 git clone https://github.com/umbrova/grovepin.git
