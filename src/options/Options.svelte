@@ -6,6 +6,7 @@
     theme:              'auto',
     pinShortcut:        'n',
     summariseThreshold: 7,
+    allowedDomains:     [],
   }
   let saved  = false
   let saving = false
@@ -14,8 +15,11 @@
     if (res.ok) settings = res.data
   })
 
+  $: domainsText = settings.allowedDomains.join('\n')
+
   async function save() {
     saving = true
+    settings.allowedDomains = domainsText.split('\n').map(d => d.trim()).filter(Boolean)
     await chrome.runtime.sendMessage({ type: 'SAVE_SETTINGS', payload: { settings } })
     saving = false
     saved  = true
@@ -76,6 +80,19 @@
           <option value="dark">Dark</option>
         </select>
       </label>
+    </section>
+
+    <section>
+      <h2>Enabled sites</h2>
+      <p class="desc">Grovepin activates on these domains. Add any site with an HTML5 video player.</p>
+      <textarea
+        bind:value={domainsText}
+        rows="6"
+        placeholder="example.com"
+        style="width:100%;font-size:12px;padding:7px 10px;border:0.5px solid #ddd;
+               border-radius:6px;font-family:monospace;resize:vertical;"
+      ></textarea>
+      <p class="hint">One domain per line. Subdomains are matched automatically.</p>
     </section>
 
     <div class="actions">

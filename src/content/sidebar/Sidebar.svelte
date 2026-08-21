@@ -3,9 +3,13 @@
   import type { Session, Pin, SummaryResult, UserSettings } from '$types/index'
   import { formatTimestamp, pauseVideo, resumeVideo, seekTo, getVideoProgress } from '$lib/video'
   import { generateId } from '$lib/storage'
+  import { downloadMarkdown } from '$lib/export'
 
   export let session: Session
   export let settings: UserSettings
+
+  const MAX_PINS = 50
+  const PINS_WARNING = 45
 
   type Screen = 'empty' | 'list' | 'compose' | 'edit' | 'summary'
   let screen: Screen    = 'empty'
@@ -30,7 +34,35 @@
     ? pins.some(p => p.createdAt > (session.lastSummarisedAt ?? 0))
     : false
   $: canSummarise        = pins.length >= threshold && (!session.lastSummarisedAt || newPinsSinceSummary)
-  $: canViewSummary      = hasSummary && !newPinsSinceSummary
+  $: canViewSummary      = (hasSummary || !!session.summary) && !newPinsSinceSummary
+  $: atPinLimit          = pins.length >= MAX_PINS
+  $: nearPinLimit        = pins.length >= PINS_WARNING && !atPinLimit
+  $: isLimitError        = summaryError.toLowerCase().includes('limit')
+    || summaryError.toLowerCase().includes('quota')
+    || summaryError.toLowerCase().includes('rate')
+
+  let sidebarEl: HTMLElement
+  let pillEl: HTMLElement
+
+  $: if (sidebarEl) {
+    if (settings.theme === 'dark') {
+      sidebarEl.setAttribute('data-theme', 'dark')
+    } else if (settings.theme === 'light') {
+      sidebarEl.setAttribute('data-theme', 'light')
+    } else {
+      sidebarEl.removeAttribute('data-theme')
+    }
+  }
+
+  $: if (pillEl) {
+    if (settings.theme === 'dark') {
+      pillEl.setAttribute('data-theme', 'dark')
+    } else if (settings.theme === 'light') {
+      pillEl.setAttribute('data-theme', 'light')
+    } else {
+      pillEl.removeAttribute('data-theme')
+    }
+  }
 
   onMount(() => {
     chrome.runtime.sendMessage({ type: 'GET_SESSION', payload: { sessionId: session.id } })
@@ -39,6 +71,8 @@
           pins    = res.data.pins ?? []
           // FIX: always use fresh title from page, not stored one
           session = { ...res.data, videoTitle: session.videoTitle, videoUrl: session.videoUrl }
+          // Restore persisted AI summary — otherwise it's lost on every reload
+          if (!summary && session.summary) summary = session.summary
         } else {
           chrome.runtime.sendMessage({ type: 'SAVE_SESSION', payload: { session } })
         }
@@ -63,6 +97,7 @@
   })
 
   function openCompose() {
+    if (atPinLimit) return  // silently block — UI already shows message
     if (collapsed) collapsed = false   // auto-expand when pinning
     pinnedTime = document.querySelector('video')?.currentTime ?? 0
     pauseVideo()
@@ -108,18 +143,26 @@
     setTimeout(() => { const ta = document.querySelector('.gp-textarea') as HTMLTextAreaElement; if (ta) { ta.focus(); ta.select() } }, 50)
   }
 
-  function jumpToPin() { seekTo(pinnedTime) }
+  function jumpToPin() { seekTo(pinnedTime); resumeVideo() }
 
   async function deletePin(pin: Pin) {
     await chrome.runtime.sendMessage({ type: 'DELETE_PIN', payload: { sessionId: session.id, pinId: pin.id } })
     pins = pins.filter(p => p.id !== pin.id)
+    if (pins.length === 0) {
+      summary = null
+      session = { ...session, summary: null, lastSummarisedAt: null }
+    }
     resumeVideo()
     screen = pins.length > 0 ? 'list' : 'empty'
   }
 
   async function summarise() {
     // If summary cached and no new pins — just show it, no API call
-    if (canViewSummary) { screen = 'summary'; return }
+    if (canViewSummary) {
+      if (!summary && session.summary) summary = session.summary
+      screen = 'summary'
+      return
+    }
     if (!canSummarise) return
 
     summarising = true; summaryError = ''; screen = 'summary'
@@ -140,14 +183,6 @@
     copySummaryDone = true; setTimeout(() => copySummaryDone = false, 2000)
   }
 
-  function exportMd() {
-    const lines = [`# ${session.videoTitle}`, ``, `**URL:** ${session.videoUrl}`, ``, `## Pins`, ``, ...pins.map(p => `- **${formatTimestamp(p.timestamp)}** — ${p.text}`)]
-    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' })
-    const url = URL.createObjectURL(blob)
-    const a = Object.assign(document.createElement('a'), { href: url, download: session.videoTitle.replace(/[^a-z0-9]/gi, '-').toLowerCase().slice(0, 60) + '.md' })
-    a.click(); URL.revokeObjectURL(url)
-  }
-
   async function copyLink() {
     try { await navigator.clipboard.writeText(session.videoUrl); copyLinkState = 'copied' }
     catch { copyLinkState = 'error' }
@@ -164,7 +199,7 @@
 
 <!-- ── COLLAPSED PILL ────────────────────────────────────────────────────── -->
 {#if collapsed}
-  <button class="gp-pill" on:click={() => collapsed = false} title="Open Grovepin (Ctrl+Shift+H)">
+  <button class="gp-pill" bind:this={pillEl} on:click={() => collapsed = false} title="Open Grovepin (Ctrl+Shift+H)">
     <svg width="16" height="16" viewBox="0 0 32 32" fill="none">
       <rect x="2" y="9" width="28" height="17" rx="3" fill="#EAF3DE" fill-opacity="0.3"/>
       <rect x="2" y="9" width="28" height="17" rx="3" stroke="#EAF3DE" stroke-width="1.5"/>
@@ -184,7 +219,7 @@
 
 <!-- ── FULL SIDEBAR ──────────────────────────────────────────────────────── -->
 {:else}
-<aside class="gp-sidebar">
+<aside class="gp-sidebar" bind:this={sidebarEl}>
 
   <header class="gp-header">
     {#if screen === 'compose'}
@@ -246,11 +281,20 @@
       {/each}
     </div>
     <div class="gp-footer">
-      <div class="gp-pin-row" role="button" tabindex="0" on:click={openCompose} on:keydown={e => e.key === 'Enter' && openCompose()}>
+      <div class="gp-pin-row" class:disabled={atPinLimit} role="button" tabindex="0" on:click={openCompose} on:keydown={e => e.key === 'Enter' && openCompose()}>
         <span class="gp-pin-ts">live</span>
         <span class="gp-pin-placeholder">Pin a moment…</span>
         <span class="gp-pin-hint">N</span>
       </div>
+      {#if atPinLimit}
+        <div class="gp-limit-msg error">
+          Pin limit reached (50). Export your notes to continue.
+        </div>
+      {:else if nearPinLimit}
+        <div class="gp-limit-msg warn">
+          {MAX_PINS - pins.length} pins remaining before limit.
+        </div>
+      {/if}
       <div class="gp-footer-btns">
         <button
           class="gp-btn"
@@ -260,7 +304,7 @@
           on:click={summarise}>
           ✦ {canViewSummary ? 'View summary' : 'Summarise'}
         </button>
-        <button class="gp-btn" on:click={exportMd}>↓ Export</button>
+        <button class="gp-btn" on:click={() => downloadMarkdown(session, summary)}>↓ Export</button>
       </div>
       {#if !canSummarise && !canViewSummary && pins.length < threshold}
         <p class="gp-unlock-hint">{pinsLeft} more pin{pinsLeft !== 1 ? 's' : ''} to unlock summarise</p>
@@ -291,7 +335,21 @@
       {#if summarising}
         <div class="gp-loading"><div class="gp-spinner"></div><p>Summarising your pins…</p></div>
       {:else if summaryError}
-        <div class="gp-error"><p>{summaryError}</p><button class="gp-btn" on:click={() => screen = 'list'}>Go back</button></div>
+        {#if isLimitError}
+          <div class="gp-error">
+            <p>You've used your 10 free summaries this month.</p>
+            <p style="margin-top:6px;font-size:11px;color:#888;line-height:1.5">
+              Export your notes as Markdown and paste them into ChatGPT,
+              Claude, or any AI to summarise. Resets on the 1st of next month.
+            </p>
+            <button class="gp-btn primary" style="margin-top:8px"
+              on:click={() => downloadMarkdown(session, summary)}>
+              ↓ Export notes
+            </button>
+          </div>
+        {:else}
+          <div class="gp-error"><p>{summaryError}</p><button class="gp-btn" on:click={() => screen = 'list'}>Go back</button></div>
+        {/if}
       {:else if summary}
         <div class="gp-sum-section"><p class="gp-sum-label">Overview</p><p class="gp-sum-text">{summary.overview}</p></div>
         <div class="gp-divider"></div>
@@ -308,7 +366,7 @@
             {#each summary.revisit as item}
               <div class="gp-sum-item">
                 <span class="gp-sum-dot">→</span>
-                <span class="gp-sum-text"><button class="gp-ts-link" on:click={() => seekTo(item.timestamp)}>{formatTimestamp(item.timestamp)}</button>{item.note}</span>
+                <span class="gp-sum-text"><button class="gp-ts-link" on:click={() => { seekTo(item.timestamp); resumeVideo() }}>{formatTimestamp(item.timestamp)}</button>{item.note}</span>
               </div>
             {/each}
           </div>
@@ -369,7 +427,7 @@
   .gp-badge { font-size: 9px; font-weight: 500; padding: 1px 6px; border-radius: 99px; white-space: nowrap; }
   .gp-badge.green { background: #EAF3DE; color: #27500A; }
   .gp-badge.paused { background: #FFF0CC; color: #854F0B; }
-  .gp-icon-btn { background: none; border: none; cursor: pointer; color: #aaa; font-size: 12px; padding: 2px 4px; line-height: 1; border-radius: 3px; font-family: inherit; }
+  .gp-icon-btn { background: none; border: none; cursor: pointer; color: #aaa; font-size: 14px; padding: 3px 5px; line-height: 1; border-radius: 3px; font-family: inherit; }
   .gp-icon-btn:hover { color: #3B6D11; background: #EAF3DE; }
   .gp-collapse-btn { background: none; border: none; cursor: pointer; color: #ccc; padding: 2px 3px; line-height: 1; border-radius: 3px; display: flex; align-items: center; }
   .gp-collapse-btn:hover { color: #3B6D11; background: #EAF3DE; }
@@ -398,6 +456,8 @@
   .gp-footer { padding: 8px 12px; border-top: 0.5px solid #e8e8e6; flex-shrink: 0; }
   .gp-pin-row { display: flex; align-items: center; gap: 6px; background: #f5f5f3; border-radius: 6px; padding: 6px 8px; border: 0.5px solid #e8e8e6; cursor: pointer; }
   .gp-pin-row:hover { border-color: #3B6D11; }
+  .gp-pin-row.disabled { opacity: 0.5; cursor: not-allowed; }
+  .gp-pin-row.disabled:hover { border-color: #e8e8e6; }
   .gp-pin-ts { font-size: 9px; font-weight: 500; padding: 2px 5px; border-radius: 3px; background: #3B6D11; color: #EAF3DE; flex-shrink: 0; }
   .gp-pin-placeholder { font-size: 10px; color: #aaa; flex: 1; }
   .gp-pin-hint { font-size: 9px; color: #ccc; }
@@ -409,9 +469,12 @@
   .gp-btn.disabled { opacity: 0.35; cursor: not-allowed; }
   .gp-btn.disabled:hover { border-color: #ddd !important; color: #5a5a58 !important; }
   .gp-unlock-hint { font-size: 9px; color: #aaa; text-align: center; margin-top: 5px; }
+  .gp-limit-msg { font-size: 9px; text-align: center; padding: 4px 8px; border-radius: 4px; margin-top: 4px; }
+  .gp-limit-msg.warn  { background: #FFF8E6; color: #854F0B; }
+  .gp-limit-msg.error { background: #FEF0EB; color: #D85A30; }
 
   .gp-screen { flex: 1; padding: 10px 12px; display: flex; flex-direction: column; overflow-y: auto; }
-  .gp-back { background: none; border: none; cursor: pointer; font-size: 10px; color: #aaa; padding: 0; text-align: left; margin-bottom: 10px; font-family: inherit; }
+  .gp-back { background: none; border: none; cursor: pointer; font-size: 11px; color: #aaa; padding: 0; text-align: left; margin-bottom: 10px; font-family: inherit; }
   .gp-back:hover { color: #3B6D11; }
   .gp-ts-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
   .gp-screen-context { font-size: 10px; color: #aaa; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -422,13 +485,13 @@
   .gp-char-hint { font-size: 9px; color: #ccc; text-align: right; margin-bottom: 8px; }
   .gp-screen-btns { display: flex; gap: 5px; }
 
-  .gp-sum-section { margin-bottom: 8px; }
-  .gp-sum-label { font-size: 9px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; color: #aaa; margin-bottom: 4px; }
-  .gp-sum-text { font-size: 12px; color: #5a5a58; line-height: 1.5; }
+  .gp-sum-section { margin-bottom: 10px; }
+  .gp-sum-label { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; color: #aaa; margin-bottom: 4px; }
+  .gp-sum-text { font-size: 13px; color: #5a5a58; line-height: 1.5; }
   .gp-sum-item { display: flex; gap: 5px; margin-bottom: 3px; }
-  .gp-sum-dot { color: #3B6D11; font-size: 12px; flex-shrink: 0; margin-top: 1px; }
+  .gp-sum-dot { color: #3B6D11; font-size: 13px; flex-shrink: 0; margin-top: 1px; }
   .gp-divider { height: 0.5px; background: #e8e8e6; margin: 0 0 8px; }
-  .gp-ts-link { background: #EAF3DE; color: #27500A; font-size: 9px; padding: 1px 5px; border-radius: 3px; border: none; cursor: pointer; font-weight: 500; margin-right: 4px; font-family: inherit; }
+  .gp-ts-link { background: #EAF3DE; color: #27500A; font-size: 10px; padding: 1px 5px; border-radius: 3px; border: none; cursor: pointer; font-weight: 500; margin-right: 4px; font-family: inherit; }
   .gp-ts-link:hover { background: #C0DD97; }
 
   .gp-toast { position: absolute; bottom: 60px; left: 12px; right: 12px; background: #1a1a18; color: #fff; font-size: 10px; padding: 6px 10px; border-radius: 5px; text-align: center; animation: fadeIn 0.15s ease; z-index: 1; }
@@ -441,28 +504,68 @@
   .gp-error { padding: 10px; color: #D85A30; font-size: 12px; line-height: 1.5; display: flex; flex-direction: column; gap: 8px; }
 
   @media (prefers-color-scheme: dark) {
-    .gp-pill { background: #0F6E56; }
-    .gp-pill:hover { background: #085041; }
-    .gp-sidebar { background: #1f1f1f; border-color: #2e2e2e; color: #e8e6e0; }
-    .gp-header, .gp-meta, .gp-footer { border-color: #2e2e2e; }
-    .gp-note-row { border-color: #2e2e2e; }
-    .gp-note-row:hover { background: #252525 !important; }
-    .gp-bar { background: #2a2a2a; }
-    .gp-pin-row { background: #2a2a2a; border-color: #333; }
-    .gp-ts { background: #0F6E56; color: #9FE1CB; }
-    .gp-pin-ts { background: #0F6E56; color: #9FE1CB; }
-    .gp-btn { border-color: #333; color: #aaa; }
-    .gp-btn:hover { border-color: #5DCAA5; color: #5DCAA5; }
-    .gp-btn.primary { border-color: #0F6E56; color: #9FE1CB; background: #1a3320; }
-    .gp-textarea { background: #2a2a2a; border-color: #5DCAA5; color: #e8e6e0; }
-    .gp-textarea:focus { box-shadow: 0 0 0 2px #1a3320; }
-    .gp-divider { background: #2e2e2e; }
-    .gp-note-text, .gp-title { color: #e8e6e0; }
-    .gp-sum-text { color: #aaa; }
-    .gp-badge.green { background: #1a3320; color: #5DCAA5; }
-    .gp-badge.paused { background: #2a1f00; color: #BA7517; }
-    .gp-spinner { border-color: #1a3320; border-top-color: #5DCAA5; }
-    .gp-action { color: #555 !important; }
-    .gp-action:hover { color: #5DCAA5 !important; background: #1a3320 !important; }
+    .gp-pill:not([data-theme="light"]) { background: #0F6E56; }
+    .gp-pill:not([data-theme="light"]):hover { background: #085041; }
+    .gp-sidebar:not([data-theme="light"]) { background: #1f1f1f; border-color: #2e2e2e; color: #e8e6e0; }
+    .gp-sidebar:not([data-theme="light"]) .gp-header, .gp-sidebar:not([data-theme="light"]) .gp-meta, .gp-sidebar:not([data-theme="light"]) .gp-footer { border-color: #2e2e2e; }
+    .gp-sidebar:not([data-theme="light"]) .gp-note-row { border-color: #2e2e2e; }
+    .gp-sidebar:not([data-theme="light"]) .gp-note-row:hover { background: #252525 !important; }
+    .gp-sidebar:not([data-theme="light"]) .gp-bar { background: #2a2a2a; }
+    .gp-sidebar:not([data-theme="light"]) .gp-pin-row { background: #2a2a2a; border-color: #333; }
+    .gp-sidebar:not([data-theme="light"]) .gp-ts { background: #0F6E56; color: #9FE1CB; }
+    .gp-sidebar:not([data-theme="light"]) .gp-pin-ts { background: #0F6E56; color: #9FE1CB; }
+    .gp-sidebar:not([data-theme="light"]) .gp-btn { border-color: #333; color: #aaa; }
+    .gp-sidebar:not([data-theme="light"]) .gp-btn:hover { border-color: #5DCAA5; color: #5DCAA5; }
+    .gp-sidebar:not([data-theme="light"]) .gp-btn.primary { border-color: #0F6E56; color: #9FE1CB; background: #1a3320; }
+    .gp-sidebar:not([data-theme="light"]) .gp-textarea { background: #2a2a2a; border-color: #5DCAA5; color: #e8e6e0; }
+    .gp-sidebar:not([data-theme="light"]) .gp-textarea:focus { box-shadow: 0 0 0 2px #1a3320; }
+    .gp-sidebar:not([data-theme="light"]) .gp-divider { background: #2e2e2e; }
+    .gp-sidebar:not([data-theme="light"]) .gp-note-text, .gp-sidebar:not([data-theme="light"]) .gp-title { color: #e8e6e0; }
+    .gp-sidebar:not([data-theme="light"]) .gp-sum-text { color: #aaa; }
+    .gp-sidebar:not([data-theme="light"]) .gp-badge.green { background: #1a3320; color: #5DCAA5; }
+    .gp-sidebar:not([data-theme="light"]) .gp-badge.paused { background: #2a1f00; color: #BA7517; }
+    .gp-sidebar:not([data-theme="light"]) .gp-spinner { border-color: #1a3320; border-top-color: #5DCAA5; }
+    .gp-sidebar:not([data-theme="light"]) .gp-action { color: #555 !important; }
+    .gp-sidebar:not([data-theme="light"]) .gp-action:hover { color: #5DCAA5 !important; background: #1a3320 !important; }
+    .gp-sidebar:not([data-theme="light"]) .gp-logo rect,
+    .gp-sidebar:not([data-theme="light"]) .gp-logo circle,
+    .gp-sidebar:not([data-theme="light"]) .gp-logo line {
+      stroke: #5DCAA5 !important;
+      fill: none !important;
+    }
+    .gp-sidebar:not([data-theme="light"]) .gp-logo rect:first-child { fill: rgba(95,210,165,0.15) !important; stroke: #5DCAA5 !important; }
+    .gp-sidebar:not([data-theme="light"]) .gp-logo circle { fill: #5DCAA5 !important; }
   }
+
+  .gp-pill:global([data-theme="dark"]) { background: #0F6E56; }
+  .gp-pill:global([data-theme="dark"]):hover { background: #085041; }
+  .gp-sidebar:global([data-theme="dark"]) { background: #1f1f1f; border-color: #2e2e2e; color: #e8e6e0; }
+  .gp-sidebar:global([data-theme="dark"]) .gp-header, .gp-sidebar:global([data-theme="dark"]) .gp-meta, .gp-sidebar:global([data-theme="dark"]) .gp-footer { border-color: #2e2e2e; }
+  .gp-sidebar:global([data-theme="dark"]) .gp-note-row { border-color: #2e2e2e; }
+  .gp-sidebar:global([data-theme="dark"]) .gp-note-row:hover { background: #252525 !important; }
+  .gp-sidebar:global([data-theme="dark"]) .gp-bar { background: #2a2a2a; }
+  .gp-sidebar:global([data-theme="dark"]) .gp-pin-row { background: #2a2a2a; border-color: #333; }
+  .gp-sidebar:global([data-theme="dark"]) .gp-ts { background: #0F6E56; color: #9FE1CB; }
+  .gp-sidebar:global([data-theme="dark"]) .gp-pin-ts { background: #0F6E56; color: #9FE1CB; }
+  .gp-sidebar:global([data-theme="dark"]) .gp-btn { border-color: #333; color: #aaa; }
+  .gp-sidebar:global([data-theme="dark"]) .gp-btn:hover { border-color: #5DCAA5; color: #5DCAA5; }
+  .gp-sidebar:global([data-theme="dark"]) .gp-btn.primary { border-color: #0F6E56; color: #9FE1CB; background: #1a3320; }
+  .gp-sidebar:global([data-theme="dark"]) .gp-textarea { background: #2a2a2a; border-color: #5DCAA5; color: #e8e6e0; }
+  .gp-sidebar:global([data-theme="dark"]) .gp-textarea:focus { box-shadow: 0 0 0 2px #1a3320; }
+  .gp-sidebar:global([data-theme="dark"]) .gp-divider { background: #2e2e2e; }
+  .gp-sidebar:global([data-theme="dark"]) .gp-note-text, .gp-sidebar:global([data-theme="dark"]) .gp-title { color: #e8e6e0; }
+  .gp-sidebar:global([data-theme="dark"]) .gp-sum-text { color: #aaa; }
+  .gp-sidebar:global([data-theme="dark"]) .gp-badge.green { background: #1a3320; color: #5DCAA5; }
+  .gp-sidebar:global([data-theme="dark"]) .gp-badge.paused { background: #2a1f00; color: #BA7517; }
+  .gp-sidebar:global([data-theme="dark"]) .gp-spinner { border-color: #1a3320; border-top-color: #5DCAA5; }
+  .gp-sidebar:global([data-theme="dark"]) .gp-action { color: #555 !important; }
+  .gp-sidebar:global([data-theme="dark"]) .gp-action:hover { color: #5DCAA5 !important; background: #1a3320 !important; }
+  .gp-sidebar:global([data-theme="dark"]) .gp-logo rect,
+  .gp-sidebar:global([data-theme="dark"]) .gp-logo circle,
+  .gp-sidebar:global([data-theme="dark"]) .gp-logo line {
+    stroke: #5DCAA5 !important;
+    fill: none !important;
+  }
+  .gp-sidebar:global([data-theme="dark"]) .gp-logo rect:first-child { fill: rgba(95,210,165,0.15) !important; stroke: #5DCAA5 !important; }
+  .gp-sidebar:global([data-theme="dark"]) .gp-logo circle { fill: #5DCAA5 !important; }
 </style>
