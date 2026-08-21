@@ -1,8 +1,8 @@
-import type { Session } from '$types/index'
+import type { Session, SummaryResult } from '$types/index'
 import { PLATFORM_LABEL } from './video'
 import { formatTimestamp } from './video'
 
-export function sessionToMarkdown(session: Session): string {
+export function sessionToMarkdown(session: Session, summary?: SummaryResult | null): string {
   const date = new Date(session.createdAt).toLocaleDateString('en-GB', {
     day: 'numeric', month: 'long', year: 'numeric',
   })
@@ -14,7 +14,7 @@ export function sessionToMarkdown(session: Session): string {
     .map(p => `- **${formatTimestamp(p.timestamp)}** — ${p.text}`)
     .join('\n')
 
-  return `# ${session.videoTitle}
+  let md = `# ${session.videoTitle}
 
 **Platform:** ${platform}
 **Date:** ${date}
@@ -24,10 +24,25 @@ export function sessionToMarkdown(session: Session): string {
 
 ${pins}
 `.trimEnd() + '\n'
+
+  if (summary) {
+    md += '\n---\n\n## AI Summary\n\n'
+    md += `### Overview\n\n${summary.overview}\n\n`
+    md += '### Key Points\n\n'
+    summary.keyPoints.forEach(p => { md += `- ${p}\n` })
+    if (summary.revisit?.length) {
+      md += '\n### Revisit\n\n'
+      summary.revisit.forEach(r => {
+        md += `- ${formatTimestamp(r.timestamp)} — ${r.note}\n`
+      })
+    }
+  }
+
+  return md
 }
 
-export function downloadMarkdown(session: Session): void {
-  const content  = sessionToMarkdown(session)
+export function downloadMarkdown(session: Session, summary?: SummaryResult | null): void {
+  const content  = sessionToMarkdown(session, summary)
   const filename = session.videoTitle
     .replace(/[^a-z0-9]/gi, '-')
     .replace(/-+/g, '-')

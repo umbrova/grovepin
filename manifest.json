@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Grovepin",
-  "version": "0.1.0",
+  "version": "1.1.0",
   "description": "Pin moments in any video, on any platform",
   "background": {
     "service_worker": "src/background/index.ts",

@@ -1,9 +1,22 @@
 import type { Session, UserSettings, StorageSchema } from '$types/index'
 
+export const DEFAULT_DOMAINS: string[] = [
+  'youtube.com',
+  'vimeo.com',
+  'loom.com',
+  'coursera.org',
+  'udemy.com',
+  'linkedin.com',
+  'wistia.com',
+  'wistia.net',
+  'fast.wistia.com',
+]
+
 const DEFAULT_SETTINGS: UserSettings = {
   theme:                'auto',
   pinShortcut:          'n',
   summariseThreshold:   7,
+  allowedDomains:       DEFAULT_DOMAINS,
 }
 
 // ─── Sessions ─────────────────────────────────────────────────────────────────

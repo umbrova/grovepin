@@ -17,6 +17,7 @@ export interface Session {
   createdAt: number
   updatedAt: number
   lastSummarisedAt: number | null
+  summary: SummaryResult | null
 }
 
 export type Platform =
@@ -40,6 +41,7 @@ export interface UserSettings {
   theme: 'auto' | 'light' | 'dark'
   pinShortcut: string                 // default 'n'
   summariseThreshold: number          // default 7
+  allowedDomains: string[]            // default list of video sites
 }
 
 // ─── Messages between content ↔ background ───────────────────────────────────

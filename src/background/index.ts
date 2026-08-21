@@ -61,6 +61,10 @@ async function handle(msg: Message & { type: string }): Promise<MessageResponse>
       if (!session) return { ok: false, error: 'Session not found' }
       session.pins = session.pins.filter(p => p.id !== pinId)
       session.updatedAt = Date.now()
+      if (session.pins.length === 0) {
+        session.summary = null
+        session.lastSummarisedAt = null
+      }
       await saveSession(session)
       return { ok: true, data: null }
     }
@@ -75,9 +79,8 @@ async function handle(msg: Message & { type: string }): Promise<MessageResponse>
         return { ok: false, error: `Need at least ${SUMMARISE_THRESHOLD} pins to summarise` }
       }
 
-      // FIX: if already summarised, return cached summary signal
-      // (summary content isn't stored — just re-call the API)
       const summary = await summarisePins(session.pins, session.videoTitle)
+      session.summary = summary
       session.lastSummarisedAt = Date.now()
       await saveSession(session)
       return { ok: true, data: { summary, lastSummarisedAt: session.lastSummarisedAt } }

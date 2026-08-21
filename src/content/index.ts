@@ -56,6 +56,14 @@ async function init() {
   sidebarMounted = true
 
   const settings = await getSettings()
+
+  // Site filtering — only activate on allowed domains
+  const hostname = window.location.hostname.replace('www.', '')
+  const allowed = settings.allowedDomains.some(
+    (d: string) => hostname === d || hostname.endsWith('.' + d)
+  )
+  if (!allowed) return
+
   const freshUrl  = location.href
 
   // Look up existing session for this URL
@@ -72,6 +80,7 @@ async function init() {
     createdAt:        Date.now(),
     updatedAt:        Date.now(),
     lastSummarisedAt: null,
+    summary:          null,
   }
 
   const host = document.createElement('div')

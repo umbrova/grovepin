@@ -3,6 +3,7 @@
   import type { Session } from '$types/index'
   import { PLATFORM_LABEL, PLATFORM_COLOR, formatTimestamp } from '$lib/video'
   import { downloadMarkdown } from '$lib/export'
+  import { DEFAULT_DOMAINS } from '$lib/storage'
 
   let sessions:   Session[] = []
   let query       = ''
@@ -10,16 +11,44 @@
   let loading     = true
   let copiedId:   string | null = null  // tracks which session link was just copied
 
-  let needsReload = false
+  let needsReload   = false
+  let isAllowedSite = false
+  let currentHost   = ''
+  let theme: 'auto' | 'light' | 'dark' = 'auto'
+  let popupEl: HTMLElement
+
+  $: isCustomDomain = isAllowedSite && !!currentHost && !DEFAULT_DOMAINS.some(
+    d => currentHost === d || currentHost.endsWith('.' + d)
+  )
+
+  $: if (popupEl) {
+    if (theme === 'dark') popupEl.setAttribute('data-theme', 'dark')
+    else if (theme === 'light') popupEl.setAttribute('data-theme', 'light')
+    else popupEl.removeAttribute('data-theme')
+  }
 
   onMount(async () => {
+    let tab
     try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+      ;[tab] = await chrome.tabs.query({ active: true, currentWindow: true })
       if (tab?.id && tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://')) {
         try { await chrome.tabs.sendMessage(tab.id, { type: 'PING' }) }
         catch { needsReload = true }
       }
     } catch { /* ignore */ }
+
+    const settingsRes = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' })
+    if (settingsRes.ok) {
+      theme = settingsRes.data.theme ?? 'auto'
+
+      if (tab?.url && !tab.url.startsWith('chrome://')) {
+        currentHost = new URL(tab.url).hostname.replace('www.', '')
+        const domains: string[] = settingsRes.data.allowedDomains ?? []
+        isAllowedSite = domains.some(
+          d => currentHost === d || currentHost.endsWith('.' + d)
+        )
+      }
+    }
 
         // Purge 0-pin sessions from storage immediately
     await chrome.runtime.sendMessage({ type: 'PURGE_EMPTY_SESSIONS' })
@@ -39,6 +68,7 @@
         .filter(s => s.pins.length > 0)  // hide empty sessions
         .sort((a, b) => b.updatedAt - a.updatedAt)
     }
+
     loading = false
   })
 
@@ -91,9 +121,35 @@
       setTimeout(() => { if (copiedId === session.id) copiedId = null }, 2500)
     } catch { /* silent fail */ }
   }
+
+  async function enableOnThisSite() {
+    if (!currentHost) return
+    const res = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' })
+    const current: string[] = res.data.allowedDomains ?? []
+    if (!current.includes(currentHost)) {
+      await chrome.runtime.sendMessage({
+        type: 'SAVE_SETTINGS',
+        payload: { settings: { allowedDomains: [...current, currentHost] } }
+      })
+    }
+    isAllowedSite = true
+    needsReload = true
+  }
+
+  async function disableOnThisSite() {
+    if (!currentHost) return
+    const res = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' })
+    const current: string[] = res.data.allowedDomains ?? []
+    await chrome.runtime.sendMessage({
+      type: 'SAVE_SETTINGS',
+      payload: { settings: { allowedDomains: current.filter((d: string) => d !== currentHost) } }
+    })
+    isAllowedSite = false
+    needsReload = true
+  }
 </script>
 
-<div class="popup">
+<div class="popup" bind:this={popupEl}>
 
   <header>
     <svg class="logo" viewBox="0 0 32 32" fill="none">
@@ -116,6 +172,30 @@
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
     Reload this tab to activate Grovepin
     <button class="reload-btn" on:click={() => { chrome.tabs.reload(); window.close() }}>Reload</button>
+  </div>
+  {/if}
+
+  {#if !isAllowedSite && currentHost && !needsReload}
+  <div class="not-allowed-banner">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="10"/>
+      <line x1="12" y1="8" x2="12" y2="12"/>
+      <line x1="12" y1="16" x2="12.01" y2="16"/>
+    </svg>
+    Not enabled on this site.
+    <button class="enable-btn" on:click={enableOnThisSite}>Enable here</button>
+  </div>
+  {/if}
+
+  {#if isCustomDomain && !needsReload}
+  <div class="site-enabled-banner">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" stroke-width="2">
+      <polyline points="20 6 9 17 4 12"/>
+    </svg>
+    Enabled on this site.
+    <button class="disable-btn" on:click={disableOnThisSite}>Disable</button>
   </div>
   {/if}
 
@@ -208,6 +288,7 @@
                   Copy link
                 {/if}
               </button>
+              <!-- No AI summary passed here — summary only lives in sidebar component state, not in stored sessions -->
               <button class="action-btn primary" on:click|stopPropagation={() => downloadMarkdown(session)}>
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 Export
@@ -231,13 +312,36 @@
   <!-- Footer -->
   <footer>
     <span class="copyright">© 2026 Umbrova</span>
-    <button class="feedback-btn" on:click={openFeedback} title="Send feedback">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-        <polyline points="22,6 12,13 2,6"/>
-      </svg>
-      Feedback
-    </button>
+    <div class="footer-icons">
+      <a
+        href="https://grovepin.umbrova.com"
+        target="_blank"
+        rel="noopener"
+        class="footer-icon-btn"
+        title="grovepin.umbrova.com"
+        aria-label="Visit Grovepin website"
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.8">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="2" y1="12" x2="22" y2="12"/>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10
+                   15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+        </svg>
+      </a>
+      <button
+        class="footer-icon-btn"
+        on:click={openFeedback}
+        title="Send feedback to hello@umbrova.com"
+        aria-label="Send feedback"
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.8">
+          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+          <polyline points="22,6 12,13 2,6"/>
+        </svg>
+      </button>
+    </div>
   </footer>
 </div>
 
@@ -308,10 +412,139 @@
   .reload-banner { display: flex; align-items: center; gap: 6px; padding: 6px 14px; background: #FFF8E6; border-bottom: 0.5px solid #F0D080; font-size: 10px; color: #854F0B; flex-shrink: 0; }
   .reload-btn { margin-left: auto; font-size: 10px; padding: 2px 8px; border: 0.5px solid #BA7517; border-radius: 3px; background: transparent; color: #854F0B; cursor: pointer; font-family: inherit; white-space: nowrap; }
   .reload-btn:hover { background: #FFF0CC; }
+  .not-allowed-banner { display: flex; align-items: center; gap: 6px; padding: 6px 14px; background: #EAF3DE; border-bottom: 0.5px solid #A8D4B8; font-size: 10px; color: #27500A; flex-shrink: 0; }
+  .enable-btn { margin-left: auto; font-size: 10px; padding: 2px 8px; border: 0.5px solid #3B6D11; border-radius: 3px; background: transparent; color: #3B6D11; cursor: pointer; font-family: inherit; white-space: nowrap; }
+  .enable-btn:hover { background: #C0DD97; }
+  .site-enabled-banner { display: flex; align-items: center; gap: 6px;
+    padding: 6px 14px; background: #f5f5f3;
+    border-bottom: 0.5px solid #e8e8e6;
+    font-size: 10px; color: #5a5a58; flex-shrink: 0; }
+  .disable-btn { margin-left: auto; font-size: 10px; padding: 2px 8px;
+    border: 0.5px solid #ddd; border-radius: 3px; background: transparent;
+    color: #888; cursor: pointer; font-family: inherit; white-space: nowrap; }
+  .disable-btn:hover { border-color: #D85A30; color: #D85A30; background: #FEF0EB; }
   .close-btn { font-size: 10px; padding: 4px 10px; border: 0.5px solid #ddd; border-radius: 4px; background: transparent; color: #888; cursor: pointer; }
   .view-all { padding: 7px 14px; text-align: center; border-top: 0.5px solid #e8e8e6; font-size: 10px; color: #aaa; cursor: pointer; }
-  footer { border-top: 0.5px solid #e8e8e6; padding: 5px 14px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; }
+  footer { border-top: 0.5px solid #e8e8e6; padding: 5px 14px;
+    flex-shrink: 0; display: flex; align-items: center;
+    justify-content: space-between; }
   .copyright { font-size: 10px; color: #ccc; }
-  .feedback-btn { background: none; border: none; cursor: pointer; font-size: 10px; color: #aaa; font-family: inherit; padding: 0; display: inline-flex; align-items: center; gap: 4px; }
-  .feedback-btn:hover { color: #3B6D11; }
+  .footer-icons { display: flex; align-items: center; gap: 4px; }
+  .footer-icon-btn { background: none; border: none; cursor: pointer;
+    color: #ccc; padding: 3px; display: inline-flex;
+    align-items: center; border-radius: 4px;
+    text-decoration: none; }
+  .footer-icon-btn:hover { color: #3B6D11; background: #EAF3DE; }
+
+  @media (prefers-color-scheme: dark) {
+    .popup:not([data-theme="light"]) {
+      background: #1f1f1f; color: #e8e6e0;
+    }
+    .popup:not([data-theme="light"]) header,
+    .popup:not([data-theme="light"]) footer,
+    .popup:not([data-theme="light"]) .stats-bar,
+    .popup:not([data-theme="light"]) .search-wrap,
+    .popup:not([data-theme="light"]) .session-row,
+    .popup:not([data-theme="light"]) .expanded,
+    .popup:not([data-theme="light"]) .content {
+      border-color: #2e2e2e; background-color: transparent;
+    }
+    .popup:not([data-theme="light"]) .session-row:hover { background: #252525; }
+    .popup:not([data-theme="light"]) .stats-bar { background: #1a1a1a; }
+    .popup:not([data-theme="light"]) .search-row { background: #2a2a2a; border-color: #333; color: #888; }
+    .popup:not([data-theme="light"]) .search-input { color: #e8e6e0; }
+    .popup:not([data-theme="light"]) .session-title { color: #e8e6e0; }
+    .popup:not([data-theme="light"]) .expanded { background: #252525; }
+    .popup:not([data-theme="light"]) .copyright { color: #444; }
+    .popup:not([data-theme="light"]) .icon-btn,
+    .popup:not([data-theme="light"]) .footer-icon-btn { color: #666; }
+    .popup:not([data-theme="light"]) .icon-btn:hover,
+    .popup:not([data-theme="light"]) .footer-icon-btn:hover { color: #5DCAA5; }
+    .popup:not([data-theme="light"]) .footer-icon-btn:hover { background: #1a3320; }
+
+    .popup:not([data-theme="light"]) .logo rect:first-child {
+      fill: rgba(95,210,165,0.15); stroke: #5DCAA5;
+    }
+    .popup:not([data-theme="light"]) .logo rect:last-of-type,
+    .popup:not([data-theme="light"]) .logo circle,
+    .popup:not([data-theme="light"]) .logo line {
+      stroke: #5DCAA5;
+    }
+    .popup:not([data-theme="light"]) .logo circle {
+      fill: #5DCAA5;
+    }
+
+    .popup:not([data-theme="light"]) .title { color: #e8e6e0; }
+    .popup:not([data-theme="light"]) .session-meta .platform { color: #888; }
+    .popup:not([data-theme="light"]) .stat { color: #999; }
+    .popup:not([data-theme="light"]) .section-label { color: #666; }
+    .popup:not([data-theme="light"]) .search-input::placeholder { color: #555; }
+    .popup:not([data-theme="light"]) .exp-text { color: #aaa; }
+    .popup:not([data-theme="light"]) .exp-more { color: #666; }
+    .popup:not([data-theme="light"]) .result-text { color: #e8e6e0; }
+    .popup:not([data-theme="light"]) .result-context { color: #666; }
+    .popup:not([data-theme="light"]) .empty-text { color: #666; }
+    .popup:not([data-theme="light"]) .muted { color: #666; }
+    .popup:not([data-theme="light"]) .view-all { color: #666; border-color: #2e2e2e; }
+    .popup:not([data-theme="light"]) .pin-count { background: #1a3320; color: #5DCAA5; }
+    .popup:not([data-theme="light"]) .action-btn { border-color: #333; color: #aaa; }
+    .popup:not([data-theme="light"]) .action-btn.primary { background: #1a3320; color: #5DCAA5; border-color: #0F6E56; }
+    .popup:not([data-theme="light"]) .reload-banner { background: #2a1f00; border-color: #3a2f00; color: #BA7517; }
+    .popup:not([data-theme="light"]) .reload-btn { border-color: #5a4000; color: #BA7517; }
+  }
+
+  .popup:global([data-theme="dark"]) {
+    background: #1f1f1f; color: #e8e6e0;
+  }
+  .popup:global([data-theme="dark"]) header,
+  .popup:global([data-theme="dark"]) footer,
+  .popup:global([data-theme="dark"]) .stats-bar,
+  .popup:global([data-theme="dark"]) .search-wrap,
+  .popup:global([data-theme="dark"]) .session-row,
+  .popup:global([data-theme="dark"]) .expanded,
+  .popup:global([data-theme="dark"]) .content {
+    border-color: #2e2e2e; background-color: transparent;
+  }
+  .popup:global([data-theme="dark"]) .session-row:hover { background: #252525; }
+  .popup:global([data-theme="dark"]) .stats-bar { background: #1a1a1a; }
+  .popup:global([data-theme="dark"]) .search-row { background: #2a2a2a; border-color: #333; color: #888; }
+  .popup:global([data-theme="dark"]) .search-input { color: #e8e6e0; }
+  .popup:global([data-theme="dark"]) .session-title { color: #e8e6e0; }
+  .popup:global([data-theme="dark"]) .expanded { background: #252525; }
+  .popup:global([data-theme="dark"]) .copyright { color: #444; }
+  .popup:global([data-theme="dark"]) .icon-btn,
+  .popup:global([data-theme="dark"]) .footer-icon-btn { color: #666; }
+  .popup:global([data-theme="dark"]) .icon-btn:hover,
+  .popup:global([data-theme="dark"]) .footer-icon-btn:hover { color: #5DCAA5; }
+  .popup:global([data-theme="dark"]) .footer-icon-btn:hover { background: #1a3320; }
+
+  .popup:global([data-theme="dark"]) .logo rect:first-child {
+    fill: rgba(95,210,165,0.15); stroke: #5DCAA5;
+  }
+  .popup:global([data-theme="dark"]) .logo rect:last-of-type,
+  .popup:global([data-theme="dark"]) .logo circle,
+  .popup:global([data-theme="dark"]) .logo line {
+    stroke: #5DCAA5;
+  }
+  .popup:global([data-theme="dark"]) .logo circle {
+    fill: #5DCAA5;
+  }
+
+  .popup:global([data-theme="dark"]) .title { color: #e8e6e0; }
+  .popup:global([data-theme="dark"]) .session-meta .platform { color: #888; }
+  .popup:global([data-theme="dark"]) .stat { color: #999; }
+  .popup:global([data-theme="dark"]) .section-label { color: #666; }
+  .popup:global([data-theme="dark"]) .search-input::placeholder { color: #555; }
+  .popup:global([data-theme="dark"]) .exp-text { color: #aaa; }
+  .popup:global([data-theme="dark"]) .exp-more { color: #666; }
+  .popup:global([data-theme="dark"]) .result-text { color: #e8e6e0; }
+  .popup:global([data-theme="dark"]) .result-context { color: #666; }
+  .popup:global([data-theme="dark"]) .empty-text { color: #666; }
+  .popup:global([data-theme="dark"]) .muted { color: #666; }
+  .popup:global([data-theme="dark"]) .view-all { color: #666; border-color: #2e2e2e; }
+  .popup:global([data-theme="dark"]) .pin-count { background: #1a3320; color: #5DCAA5; }
+  .popup:global([data-theme="dark"]) .action-btn { border-color: #333; color: #aaa; }
+  .popup:global([data-theme="dark"]) .action-btn.primary { background: #1a3320; color: #5DCAA5; border-color: #0F6E56; }
+  .popup:global([data-theme="dark"]) .reload-banner { background: #2a1f00; border-color: #3a2f00; color: #BA7517; }
+  .popup:global([data-theme="dark"]) .reload-btn { border-color: #5a4000; color: #BA7517; }
 </style>

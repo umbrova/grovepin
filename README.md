@@ -11,11 +11,13 @@ Grovepin is a Chrome extension that lets you drop timestamped notes on videos wh
 
 - **Pin moments** — press `N` on any video page to capture a timestamped note. Video pauses while you type, resumes on save.
 - **Works everywhere** — YouTube, Vimeo, Coursera, Udemy, Loom, LinkedIn Learning, Wistia, and any HTML5 video player
+- **Site filtering** — only activates on known video sites by default. Enable on any site via the popup — one click, then reload.
 - **Jump back** — click any timestamp to seek the video to that exact moment
-- **AI summary** — after 7+ pins, summarise your notes into key points and revisit items with one click (10 free summaries/month, no API key needed)
-- **Export** — download your notes as a clean Markdown file
+- **AI summary** — after 7+ pins, summarise your notes into key points and revisit items with one click. 10 free summaries per month, no API key needed. Export notes as Markdown to summarise with any AI after the limit is reached.
+- **Export** — exports pins and AI summary (if available) as Markdown
+- **Pin limit** — up to 50 pins per session
 - **Session history** — popup shows all past sessions across platforms, searchable
-- **Dark mode** — follows your system preference automatically
+- **Dark mode** — follows system preference, or set manually in Settings (Light / Dark / Auto)
 - **Collapse to pill** — hide the sidebar to a slim icon when you need full screen
 
 ## Keyboard shortcuts
@@ -23,10 +25,21 @@ Grovepin is a Chrome extension that lets you drop timestamped notes on videos wh
 | Action | Shortcut |
 |---|---|
 | Pin current moment | `N` (while on a video page) |
-| Toggle sidebar | `Ctrl/Cmd + Shift + H` |
 | Open popup | `Ctrl/Cmd + Shift + Y` |
+| Toggle sidebar | `Ctrl/Cmd + Shift + H` |
 
 Change shortcuts at `chrome://extensions/shortcuts`
+
+## Settings
+
+Open via the popup's gear icon, or `chrome://extensions` → Grovepin → Details → Extension options.
+
+| Setting | Default | Description |
+|---|---|---|
+| `theme` | `auto` | Light, dark, or auto (follows system preference) |
+| `pinShortcut` | `n` | Key that captures a pin while watching |
+| `summariseThreshold` | `7` | Minimum pins before AI summarise unlocks |
+| `allowedDomains` | `youtube.com`, `vimeo.com`, `loom.com`, `coursera.org`, `udemy.com`, `linkedin.com`, `wistia.com`, `wistia.net`, `fast.wistia.com` | Domains where Grovepin activates. Add custom domains via popup or Settings page |
 
 ### Load unpacked (dev)
 ```bash
